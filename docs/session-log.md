@@ -20,6 +20,67 @@ Entry format:
 
 ---
 
+## 2026-10-27 — pi7: Docker en 32 bits y el deployment `office-bench`
+**Time:** 15:55–16:45 (aprox)
+**User request:** usar pi7 como host del gateway (radio aún sin flashear; será
+otro T-Beam). Docker para el sistema de 32 bits. Crear un deployment nuevo con
+los tres SenseCAP del banco de su oficina (node_id, MAC, firmware 2.7.26), para
+configurar desde la plataforma el T-Beam como gateway y probar el banco.
+
+### Actions taken
+- pi7 (`ssh pi7`, 10.6.5.7, `rpi7`): Raspberry Pi 4 con **Raspberry Pi OS de 32
+  bits** (`armhf`, kernel de 64). Reloj sincronizado, 45 GB libres, 7,6 GB RAM,
+  puerto 80 libre, internet. Contiene `~/Desktop/vertex-testbed` con 5,1 GB de
+  `data/` **nunca commiteados** (solo existen ahí): no reinstalar sin respaldo.
+- La guía de Ubuntu no aplica (no es Ubuntu). Docker **28.5.2** + Compose
+  instalados desde el repositorio `raspbian` oficial de Docker (su guía para
+  32 bits; la 28 es la última mayor para 32 bits); `rpi7` en el grupo `docker`;
+  `hello-world` corre como `arm32v7`.
+- Imágenes en 32 bits: `influxdb:1.11-alpine` y `telegraf:1.32-alpine` no
+  existen para `arm/v7`. Compose: `telegraf:1.32` (Debian, multi-arquitectura)
+  para todos; InfluxDB configurable con `INFLUXDB_IMAGE` (por defecto 1.11;
+  `influxdb:1.8` en pi7: mismas variables de cuentas, verificado en su script).
+  Mosquitto corre como `arm/v6`. Las cuatro descargadas en pi7.
+- Primera compilación en pi7: fallaron `greenlet` y `msgpack` (sin wheel para
+  32 bits, y la imagen no tiene compilador); `dbus-fast` también compila. Los
+  dos Dockerfiles ahora construyen los wheels en una etapa con compilador y la
+  imagen final los instala sin él (verificado en amd64: sin `gcc`, imports
+  correctos, el receiver como `gateway` en `dialout`).
+- `meshtastic-platform/deployments/office-bench.yaml` (pedido explícito del
+  usuario): `kind: bench`, bloque de radio idéntico a `mini.yaml` (canal
+  `miniT`, `MINI_PSK`, slot 45: N1–N3 ya fueron provisionados con él), N1–N3
+  `deployed` con node_id/MAC/firmware de su tabla, `GW` (T-Beam,
+  `function: gateway`, `CLIENT_MUTE`) en `planned`; potencia mínima del chip
+  (-9 dBm SenseCAP, 2 dBm T-Beam), como exige el validador para un banco.
+  `validate` OK (avisos esperados: GW sin registrar; MCU mixtas);
+  `validate --all` OK; 204 tests de la plataforma en verde. Copia idéntica en
+  `deployments/` del gateway (mismo sha256); el lector del gateway conoce N1–N3.
+- `docs/troubleshooting.md`: "A 32-bit Raspberry Pi". Memoria: `pi7-gateway-host`.
+- **238 tests en verde.**
+- Segunda compilación en pi7 (copia del árbol en `/tmp/gwbuild`): ambas
+  imágenes OK en 3 min 28 s (compila `dbus-fast`, `greenlet`, `msgpack`).
+- **Prueba en vivo en pi7** (credenciales de prueba, `influxdb:1.8`): los cinco
+  servicios arriba; Telegraf conectado en sus 3 entradas; InfluxDB sin
+  credenciales → 401. Desde la imagen del receiver se publicó telemetría de
+  N1–N3; desde la laptop, por la red: dashboard sin login 401, con login 200,
+  voltaje de N1 por `/api/recent` a través del proxy; 1883, 5000 y 8086
+  cerrados desde la red. Desmontado (contenedores y volúmenes); credenciales de
+  prueba borradas; imágenes conservadas como caché.
+
+### Decisions
+- `kind: bench` y no `field`: con `field`, un nodo `deployed` exige posición
+  medida en terreno, y la plataforma prohíbe coordenadas de escritorio.
+- N1–N3 siguen con los 22 dBm de `mini` hasta reprovisionarlos con este archivo
+  (mismo canal, solo cambia la potencia): hasta entonces el inspector de la
+  plataforma marcará su potencia.
+
+### Next steps / open questions
+- Usuario: flashear el T-Beam (2.7.26, borrado completo), `inspect` → registrar
+  GW en `office-bench.yaml` → `validate` → `provision --node GW`; recopiar el
+  archivo al gateway; conectarlo a pi7.
+
+---
+
 ## 2026-10-27 — README, `docs/design.md` y preparación del primer commit
 **Time:** 10:25–10:40 (aprox)
 **User request:** incluir el diagrama nuevo en un `.md` (un README breve); ¿está

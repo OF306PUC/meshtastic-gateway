@@ -43,7 +43,9 @@ services:
       - "127.0.0.1:1883:1883"
 
   influxdb:
-    image: influxdb:1.11-alpine
+    # 1.11 has no 32-bit ARM build: on 32-bit Raspberry Pi OS set
+    # INFLUXDB_IMAGE=influxdb:1.8 in .env (same InfluxQL and account variables).
+    image: ${INFLUXDB_IMAGE:-influxdb:1.11-alpine}
     restart: unless-stopped
     logging: *logging
     env_file: secrets/influxdb.env       # the admin, write and read accounts
@@ -57,7 +59,7 @@ services:
       - influxdb_data:/var/lib/influxdb
 
   telegraf:
-    image: telegraf:1.32-alpine
+    image: telegraf:1.32                 # Debian-based: built for 32-bit ARM too, unlike -alpine
     restart: unless-stopped
     logging: *logging
     env_file: secrets/telegraf.env       # MQTT_*_TELEGRAF, INFLUXDB_WRITE_USER*

@@ -23,6 +23,7 @@ prefix or a genuinely silent radio. Each entry says how to tell the difference.
 | Data written, dashboard shows nothing recent | [Measurements landing in the past](#measurements-landing-in-the-past) |
 | A code change has no effect | [Compose restarted the old image](#compose-restarted-the-old-image) |
 | `unknown shorthand flag: 'd' in -d` | [Compose v2 is not installed](#compose-v2-is-not-installed) |
+| `no matching manifest for linux/arm/v7` | [A 32-bit Raspberry Pi](#a-32-bit-raspberry-pi) |
 | Serial port busy, or the board reboots when you connect | [Serial port contention](#serial-port-contention) |
 | No temperature from a sensor, identical positions | [Node-side symptoms](#node-side-symptoms) |
 
@@ -341,6 +342,30 @@ sudo apt-get update && sudo apt-get install -y docker-compose-plugin
 On a Pi where Docker came from `apt install docker.io`, installing from the
 official Docker repository gets a matching CLI, daemon and plugin. If `apt`
 fails on certificates, fix the clock first.
+
+---
+
+## A 32-bit Raspberry Pi
+
+**Symptom.** `docker compose pull` fails with `no matching manifest for
+linux/arm/v7`, or the first `docker compose build` takes several minutes.
+
+Raspberry Pi OS 32-bit (`dpkg --print-architecture` prints `armhf`, even on a
+Pi 4 with a 64-bit kernel) runs only `arm/v7` (and `arm/v6`) images. InfluxDB
+1.11 has no such build; 1.8 is the last one:
+
+```bash
+echo 'INFLUXDB_IMAGE=influxdb:1.8' >> .env      # same InfluxQL and account variables
+```
+
+Telegraf uses the Debian-based `telegraf:1.32`, which has a 32-bit build; the
+Mosquitto image runs as `arm/v6`. Several Python dependencies (dbus-fast,
+greenlet, msgpack) publish no 32-bit wheel, so the images compile them in a
+build stage: the first build is slow, later ones are cached.
+
+Install Docker from Docker's `raspbian` repository (their "Raspberry Pi OS
+32-bit" guide), not the Ubuntu or Debian one. Docker Engine 28 is the last major
+version for 32-bit Raspberry Pi OS; a 64-bit OS is the long-term route.
 
 ---
 
