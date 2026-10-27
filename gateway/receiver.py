@@ -39,11 +39,18 @@ class Receiver:
     def __init__(self, publisher, nodes: Mapping[str, Node], *,
                  pdr_window_sec: Mapping[str, int], my_id: str | None = None,
                  my_num: int | None = None, capture_content: bool = False,
+                 settle_sec: float = 0.0,
                  wall: Callable[[], float] = time.time,
                  mono: Callable[[], float] = time.monotonic,
                  log: Callable[[str], None] = print):
         """`publisher` has publish_payload(label, kind, payload) and topic_prefix;
-        `nodes` maps node_id -> Node (Deployment.known_nodes())."""
+        `nodes` maps node_id -> Node (Deployment.known_nodes()).
+
+        Receptions in the first `settle_sec` are published but not scored for
+        PDR: on connection the radio delivers, all at once, the packets it held
+        while nothing was connected, and their arrival times say nothing about
+        the cadence (seen 2026-10-27: two packets sent 60 s apart, 0.1 s apart
+        on arrival, scored as early)."""
         for node in nodes.values():            # a label that is no topic level fails now
             topic_for(publisher.topic_prefix, node.name, "device")
         self.publisher = publisher
@@ -63,6 +70,8 @@ class Receiver:
         self._last_device_ts: dict[tuple, int] = {}
         self._warned: set = set()
         self._lock = threading.Lock()
+        self._settle_until = self.mono() + settle_sec
+        self.unscored_at_startup = 0
 
     # ── Packets ───────────────────────────────────────────────────────────────
 
@@ -121,7 +130,16 @@ class Receiver:
         device_ts = getattr(d, flow).device_ts
         if device_ts is not None:
             self._last_device_ts[hold_key] = device_ts
-        return to_payload(d, flow, node.name, received_at, self._pdr(node, flow, now),
+        if now < self._settle_until:
+            self.unscored_at_startup += 1
+            self._warn(("settling",),
+                       f"[PDR] Not scoring receptions until {self._settle_until - now:.0f} s from "
+                       f"now: the radio first delivers, at once, the packets it held while "
+                       f"nothing was connected. They are published all the same.")
+            pdr = {}
+        else:
+            pdr = self._pdr(node, flow, now)
+        return to_payload(d, flow, node.name, received_at, pdr,
                           held_device_ts=self._last_device_ts.get(hold_key))
 
     def _log_message(self, d: DecodedPacket, node: Node):
@@ -194,6 +212,7 @@ class Receiver:
             "errors": dict(self.errors),
             "mqtt_queued": sum(getattr(self.publisher, "queued", {}).values()),
             "mqtt_dropped": sum(getattr(self.publisher, "dropped", {}).values()),
+            "pdr_unscored_at_startup": self.unscored_at_startup,
         }
 
     def _warn(self, key, message: str):

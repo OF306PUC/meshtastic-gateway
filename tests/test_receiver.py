@@ -49,14 +49,14 @@ class ReceiverCase(unittest.TestCase):
         self.enterContext(contextlib.redirect_stdout(io.StringIO()))
         self.rx = self.make()
 
-    def make(self, nodes=None):
+    def make(self, nodes=None, **kwargs):
         conn = MQTTConnector("localhost", "testbed")
         conn.client = self.client = _Client()
         self.clock, self.logs = _Clock(), []
         return Receiver(conn, DEP.known_nodes() if nodes is None else nodes,
                         pdr_window_sec=WINDOWS, my_id=pk.GATEWAY_ID, my_num=pk.GATEWAY_NUM,
                         wall=lambda: self.clock.wall, mono=lambda: self.clock.mono,
-                        log=self.logs.append)
+                        log=self.logs.append, **kwargs)
 
     def receive(self, *packets):
         for packet in packets:
@@ -253,6 +253,50 @@ class TestMessageLog(ReceiverCase):
     def test_the_text_is_still_not_published(self):
         self.receive(pk.private_packet(pk.pbx_frame(content=b"secret")))
         self.assertNotIn("secret", json.dumps(self.sent("message")))
+
+
+class TestStartupSettling(ReceiverCase):
+    """On connection the radio hands over the packets it held, all at once (seen
+    on pi7, 2026-10-27): published, but not scored against the cadence."""
+
+    def setUp(self):
+        super().setUp()
+        self.rx = self.make(settle_sec=10)
+
+    def at(self, t, packet):
+        self.clock.mono = t
+        self.receive(packet)
+
+    def test_the_burst_is_published_but_not_scored(self):
+        self.at(0.0, pk.device_packet())
+        self.at(0.1, pk.device_packet())
+        burst = self.sent("device")
+        self.assertEqual(len(burst), 2)
+        for payload in burst:
+            self.assertIn("voltage", payload)
+            self.assertNotIn("pdr", payload)
+        self.assertEqual(self.warnings("inside its"), [], "no false early-arrival alarm")
+        self.assertEqual(sum("Not scoring" in line for line in self.logs), 1)
+        self.assertEqual(self.rx.report()["pdr_unscored_at_startup"], 2)
+
+    def test_scoring_starts_after_the_window_with_a_clean_cadence(self):
+        for t in (0.0, 0.1):
+            self.at(t, pk.device_packet())
+        for t in (12.0, 132.0):                       # live, one cadence (120 s) apart
+            self.at(t, pk.device_packet())
+        first, second = self.sent("device")[2:]
+        self.assertEqual((first["rx_count"], first["pdr"]), (1, None))
+        self.assertEqual((second["rx_count"], second["pdr"], second["cadence_violated"]),
+                         (2, 1.0, 0))
+
+    def test_a_reboot_is_still_detected_across_the_window(self):
+        held = pk.device_packet()
+        held["decoded"]["telemetry"]["deviceMetrics"]["uptimeSeconds"] = 7200
+        self.at(0.0, held)
+        rebooted = pk.device_packet()
+        rebooted["decoded"]["telemetry"]["deviceMetrics"]["uptimeSeconds"] = 30
+        self.at(20.0, rebooted)
+        self.assertTrue(any("rebooted" in line for line in self.logs))
 
 
 class TestFailsLoudly(ReceiverCase):

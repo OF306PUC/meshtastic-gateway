@@ -20,6 +20,70 @@ Entry format:
 
 ---
 
+## 2026-10-27 — Cadencia de 60 s y ventana de arranque
+**Time:** 17:10–17:25 (aprox)
+**User request:** la cadencia real de los SenseCAP es 60 s (el usuario la
+cambió); llevarla al `.yaml`. Aprobada la ventana de arranque sin puntuar.
+
+### Actions taken
+- `office-bench.yaml` (plataforma, la fuente): N1–N3 `intervals: {device: 60}`.
+  `validate` OK; copia idéntica en el gateway (sha `51242653…`).
+- `gateway/receiver.py`: `settle_sec` (0 por defecto, así los tests y la
+  equivalencia con el monorepo no cambian); `main.py` pasa 10 s. Lo recibido
+  en esa ventana se publica sin campos PDR y sin puntuar; aviso una sola vez;
+  `report()` cuenta `pdr_unscored_at_startup`. La detección de reinicios sigue
+  activa.
+- `tests/test_receiver.py::TestStartupSettling` (3); mutación (sin ventana) →
+  2 fallan. **241 tests en verde.** `docs/design.md` §4.
+
+### Next steps / open questions
+- Usuario: commit y push (gateway y plataforma). Luego en pi7: `git pull` y
+  `docker compose up -d --build`. Lo que InfluxDB guardó con la cadencia de
+  120 s tiene PDR inválido: empezar con la base vacía (`down -v`) o anotar desde
+  cuándo vale.
+
+---
+
+## 2026-10-27 — El gateway corriendo en pi7 con el banco de la oficina
+**Time:** 16:55–17:10 (aprox)
+**User request:** el usuario clonó el repo en pi7 (`~/Desktop/meshtastic-gateway`,
+commit `f25ef2f`), creó `.env`, registró `GW` en `office-bench.yaml` (tres
+copias idénticas, sha `4e9076…`), generó las credenciales y conectó el T-Beam.
+
+### Actions taken
+- `.env` de pi7: `MESH_DEPLOYMENT=office-bench`, `MQTT_TOPIC_PREFIX=office-bench`,
+  `INFLUXDB_IMAGE=influxdb:1.8`, `GATEWAY_SERIAL_PORT=/dev/serial/by-id/usb-1a86_USB_Single_Serial_5896111599-if00`.
+- Radio leída (solo lectura) antes de usarla: `!6c74104c`, 2.7.26,
+  `CLIENT_MUTE`, ANZ MEDIUM_FAST slot 45, 2 dBm, canal `miniT`: provisionada.
+- Credenciales: completas (secrets 700/600, pwfile 600 uid 1883, sin restos).
+- `docker compose up -d --build` (2 min 46 s): seis servicios arriba; el
+  receiver arranca sin warnings de inicio (sha correcto, N1–N3 y GW conocidos,
+  radio GW en CLIENT_MUTE), Telegraf con 3 entradas, datos en InfluxDB.
+
+### Outcomes — hallazgos de la primera corrida real
+- **Los SenseCAP transmiten telemetría de dispositivo cada 60 s, no 120 s**
+  (reloj del nodo: N1 16119→16179→16239; N3 14615→14675→14735). Con 120 s
+  declarados, el estimador ve cada paquete a media cadencia y lo cuenta como
+  temprano: `cadence_violated=1`, PDR inválido. El warning de G10 lo dijo al
+  arrancar. La plataforma traduce `device: 120` a
+  `telemetry.device_update_interval = 120`; queda por ver qué tienen
+  configurado los nodos (inspector de la plataforma, por USB).
+- **Ráfaga al conectar**: al abrir el puerto, el T-Beam se reinicia y luego
+  entrega de golpe paquetes retenidos (dos por nodo, 0,1 s entre sí). El
+  estimador los toma como llegadas tempranas aunque fueron emitidos 60 s
+  aparte; además, por el reinicio se pierde un paquete por nodo.
+- Esos dos paquetes de la ráfaga comparten segundo (`received_at`) y tags, así
+  que en InfluxDB el segundo pisa al primero.
+
+### Next steps / open questions
+- Usuario: `python configure.py inspect -d office-bench --node N1 --port ...`
+  en un SenseCAP: ¿qué `device_update_interval` tiene? Si 60 s es lo deseado,
+  declarar `device: 60` (y sincronizar las tres copias); si no, reprovisionar.
+- Proponer al usuario: no puntuar en el PDR los paquetes que llegan en los
+  primeros segundos tras conectar (se publican igual).
+
+---
+
 ## 2026-10-27 — pi7: Docker en 32 bits y el deployment `office-bench`
 **Time:** 15:55–16:45 (aprox)
 **User request:** usar pi7 como host del gateway (radio aún sin flashear; será

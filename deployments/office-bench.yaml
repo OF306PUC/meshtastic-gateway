@@ -45,7 +45,7 @@ nodes:
     hop_limit: 1
     antenna: {type: rubber, gain_dbi: 2.0, band_mhz: [902, 928], model: SenseCAP stock}
     tx_power_dbm: -9
-    intervals: {device: 120}
+    intervals: {device: 60}
     sensors: []
 
   - ref: N2
@@ -60,7 +60,7 @@ nodes:
     hop_limit: 1
     antenna: {type: rubber, gain_dbi: 2.0, band_mhz: [902, 928], model: SenseCAP stock}
     tx_power_dbm: -9
-    intervals: {device: 120}
+    intervals: {device: 60}
     sensors: []
 
   - ref: N3
@@ -75,7 +75,7 @@ nodes:
     hop_limit: 1
     antenna: {type: rubber, gain_dbi: 2.0, band_mhz: [902, 928], model: SenseCAP stock}
     tx_power_dbm: -9
-    intervals: {device: 120}
+    intervals: {device: 60}
     sensors: []
 
   # The gateway radio: plugged into pi7, read by meshtastic-gateway. Listens and

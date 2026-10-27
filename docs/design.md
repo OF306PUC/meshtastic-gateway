@@ -206,6 +206,11 @@ for flow in decoded.flows:                      # 'device' | 'environment' | 'po
 - `to_payload()` is where the field-name contract lives: pure, `DecodedPacket
   -> dict`, no clock, no I/O.
 - Messages skip the PDR step: decode → dedup → `to_message_payload()` → publish.
+- **The first 10 s after start-up are published but not scored.** Opening the
+  serial port restarts the radio, which then hands over, at once, the packets
+  it held while nothing was connected: their arrival times say nothing about
+  the cadence, and scored they raise a false `cadence_violated` (seen on the
+  office bench, 2026-10-27). The report counts them (`pdr_unscored_at_startup`).
 - The gateway radio stays `CLIENT_MUTE` (G6): if it rebroadcasts, it
   contaminates its own measurement. The platform provisions it and its
   inspector checks it; the receiver warns at start if it is not.

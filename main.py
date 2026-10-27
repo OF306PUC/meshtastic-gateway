@@ -20,6 +20,9 @@ from gateway.publish import MQTTConnector
 from gateway.receiver import Receiver
 
 REPORT_EVERY_SEC = 600
+# Opening the port restarts the radio, which then hands over the packets it held
+# in one burst: long enough to cover it, short against any cadence.
+STARTUP_SETTLE_SEC = 10
 
 
 def main() -> int:
@@ -61,7 +64,7 @@ def main() -> int:
         print(f"[GW] WARNING: {warning}")
 
     receiver = Receiver(mqtt, nodes, pdr_window_sec=cfg.pdr_window_sec,
-                        my_id=my_id, my_num=my_num)
+                        my_id=my_id, my_num=my_num, settle_sec=STARTUP_SETTLE_SEC)
     lost = threading.Event()
 
     def on_lost(interface=None):
