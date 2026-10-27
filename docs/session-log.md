@@ -1,0 +1,796 @@
+# Session Log — Bitácora
+
+Chronological log of every work session. A new entry is added at the start of
+each session and filled in real time as work progresses. **Newest entry on top.**
+
+Entry format:
+```
+## YYYY-MM-DD — [brief session title]
+**Time:** HH:MM (aprox)
+**User request:** ...
+### Actions taken
+- ...
+### Decisions
+- ...
+### Outcomes
+- ...
+### Next steps / open questions
+- ...
+```
+
+---
+
+## 2026-10-27 — README, `docs/design.md` y preparación del primer commit
+**Time:** 10:25–10:40 (aprox)
+**User request:** incluir el diagrama nuevo en un `.md` (un README breve); ¿está
+terminado lo de las directivas y el refactor? Quiere borrar
+`GATEWAY-DIRECTIVES.md` y `REFACTOR-PLATFORM-GATEWAY.md`, hacer el primer
+commit y el push.
+
+### Actions taken
+- `README.md`: qué es, el diagrama (`docs/diagrams/port-architecture.png`),
+  puesta en marcha en 4 pasos, mapa del repositorio, desarrollo y tests, índice
+  de la documentación.
+- `docs/design.md`: lo durable de GATEWAY-DIRECTIVES, sin el plan de trabajo —
+  frontera con la plataforma y la decisión de no depender de su código, el
+  contrato publicado (campos, reglas, diferencias deliberadas con el monorepo,
+  tópicos, mediciones, cuentas y puertos), invariantes del estimador de PDR,
+  forma del receiver, invariantes G1–G13 (misma numeración que citan el código
+  y troubleshooting) y lo decidido fuera o diferido.
+- Seis referencias a GATEWAY-DIRECTIVES en código y tests →
+  `docs/design.md`. Fuera de los dos archivos solo las menciona esta bitácora
+  (historia). Enlaces relativos del README y de `design.md` verificados.
+- Auditoría de `git add -A --dry-run`: sin `.env`, `secrets/`, `pwfile`,
+  `.venv` ni caches. Quitadas 12 imágenes copiadas del monorepo que nada usa
+  (1,2 MB; solo el favicon se usa): no entran para siempre en el historial.
+- **238 tests en verde.**
+
+### Decisions
+- Sí está terminado para este alcance: pasos 1–6, 8 y 9 hechos, 7 descartado.
+  Diferido, no bloqueante: dónde va el PBX; mapas y batimetría offline;
+  migrar eventlet; imágenes base por digest.
+
+### Next steps / open questions
+- Usuario: borrar los dos documentos, primer commit y push a `origin/main`.
+- Luego, en la plataforma: agregar el gateway como submódulo de referencia y
+  corregir su CLAUDE.md y su memoria, que aún dicen que el gateway reutiliza su
+  código.
+
+---
+
+## 2026-10-27 — Diagrama TikZ de la arquitectura de puertos
+**Time:** 10:15–10:30 (aprox)
+**User request:** (desde la sesión de `meshtastic-platform`) dibujar en TeX la
+arquitectura de puertos de la opción B, a partir de su resumen y de esta
+implementación. Es el diagrama que la entrada "Opción B" dejó a otro agente.
+
+### Actions taken
+- `docs/diagrams/port-architecture.tex` (TikZ standalone) → `.png` (300 dpi) y
+  `.pdf`: zonas (red de terreno, host, red de Compose, loopback 127.0.0.1),
+  los seis contenedores con su puerto interno y cómo se publica, los flujos
+  1–8 con protocolo y cuenta, una tabla con lo que puede cada cuenta, y lo
+  ausente a propósito (TLS, listener websocket).
+- `docs/diagrams/palette.tex` y `build.sh` copiados de `meshtastic-platform`
+  (mismo aspecto que sus diagramas). Compilar: `docs/diagrams/build.sh`.
+
+### Decisions
+- Vive aquí y no en la plataforma: la regla 2 de ese repositorio prohíbe mencionar
+  broker, base de datos o contenedores.
+- Datos tomados de `docker-compose.yaml`, `proxy/Caddyfile`,
+  `mqtt/aclfile.template`, `telegraf.conf` y los Dockerfiles. Las flechas MQTT
+  siguen al mensaje; las HTTP, al request (como en el resumen del usuario).
+- No nombra archivos de credenciales: sigue siendo válido con las
+  credenciales por servicio de la entrada siguiente.
+
+### Next steps / open questions
+- Si cambia un puerto, una cuenta o un servicio, actualizar el diagrama.
+
+---
+
+## 2026-10-27 — Credenciales por servicio
+**Time:** 10:15–10:35 (aprox)
+**User request:** "yes" al diseño de archivos de credenciales por servicio.
+
+### Actions taken
+- `mqtt/init-credentials.sh` reescrito: genera todas las credenciales en un
+  directorio temporal (incluido `mosquitto_passwd`, ahora como el usuario del
+  host para que lo temporal sea borrable) y recién al final mueve
+  `secrets/` (700; `influxdb`, `telegraf`, `gateway`, `web`, `proxy`.env, 600)
+  y `mqtt/pwfile` (1883, 600). Se niega si existe cualquiera de los dos. Solo
+  imprime la contraseña del dashboard. Nada que copiar a mano.
+- Compose: un `env_file` por servicio (`mosquitto`, ninguno);
+  `INFLUXDB_DB` pasa a `.env` (obligatorio, `:?`) por un ancla.
+  `configuration.env.example` eliminado; `.gitignore` ignora `secrets/` y
+  `.credentials.*`.
+- Referencias actualizadas: pista G5 del gateway y del dashboard, `plot_history`
+  (`set -a; . ./.env; . ./secrets/web.env; set +a`), comentarios, `.env.example`,
+  troubleshooting (G5 reescrita; el ejemplo de `mosquitto_sub` usa la cuenta de
+  Telegraf porque `monitor` ya no lee todo; "expect 3" entradas de Telegraf;
+  nueva sección "Rotating the credentials" con `SET PASSWORD` y la contraseña
+  admin vieja), directivas (G5, G9, §1.5).
+- `tests/test_infrastructure.py::TestCredentialsPerService` (5): cada archivo
+  tiene exactamente las claves de su servicio; cada servicio su archivo; solo
+  `influxdb` conoce la contraseña admin; toda variable de `telegraf.conf` y del
+  Caddyfile, y toda credencial que leen el receiver y el dashboard, existe en su
+  archivo. **238 tests en verde.**
+- **Prueba en vivo** (`gwtest`, desmontado): con Docker inaccesible el script
+  falla sin dejar nada; corrida normal con permisos correctos; segunda corrida
+  rechazada. Stack arriba: el entorno de cada contenedor tiene solo sus
+  credenciales (el receiver, solo su cuenta MQTT); el receiver publica, Telegraf
+  escribe sin errores, el dashboard responde por el proxy, `plot_history`
+  funciona con `secrets/web.env`.
+
+### Next steps / open questions
+- Más adelante: mapas y batimetría offline (San Joaquín, Isla de Pascua) para
+  el demo de SASIPA.
+
+---
+
+## 2026-10-27 — Opción B: un proxy con login como única puerta
+**Time:** 09:55–10:15 (aprox)
+**User request:** opción B (localhost + proxy con login); el diagrama `.tex`
+de la arquitectura lo hará otro agente. Pregunta: cómo escribiría
+`init-credentials.sh` un archivo por servicio (sin aprobar aún).
+
+### Actions taken
+- `proxy/Caddyfile` (Caddy 2.10): `basic_auth` con `DASHBOARD_USER` y
+  `DASHBOARD_PASSWORD_HASH` (bcrypt), `reverse_proxy web:5000`, sin HTTPS
+  automático (offline no hay certificado de confianza; protege el WPA2 de la
+  WiFi de terreno) y sin API de administración.
+- Compose: servicio `proxy` en `${DASHBOARD_PORT:-80}`, la única puerta a la
+  red; `web` → `127.0.0.1:5000`, `influxdb` → `127.0.0.1:8086` (MQTT ya estaba
+  en localhost). Volumen `caddy_data`.
+- Feed en vivo: por defecto, mismo origen (lo que el navegador haya escrito
+  para llegar al proxy: `gateway.local`, una IP); `MONITOR_ALLOWED_ORIGINS`
+  queda opcional.
+- `init-credentials.sh`: genera la contraseña del dashboard, guarda solo su
+  hash bcrypt (con el `caddy` del compose) y muestra la contraseña una vez.
+- **Trampa encontrada**: Compose interpola los `$` dentro de los env files; un
+  hash bcrypt sin comillas queda truncado (solo un warning) y todo login falla.
+  El hash va entre comillas simples; test que lo fija.
+- Tests (`TestHardening`): solo el proxy abierto a la red; el Caddyfile pide
+  login; hash entre comillas; el script usa la misma imagen de Caddy. **233 en
+  verde.**
+- **Prueba en vivo** (`gwtest`, desmontado): en la red solo `:80`; el resto
+  en `127.0.0.1`. Sin login / login errado → 401; correcto → 200 (mapa, API),
+  por `localhost` y por la IP de la LAN. Socket.IO a través del proxy, como un
+  navegador (credenciales en cada request): conecta desde ambos orígenes sin
+  configurar nada; otro sitio → 400; sin login → 401; llega solo telemetría.
+  (El cliente Python de Socket.IO manda las credenciales solo en el primer
+  request y fallaba con 401: artefacto del cliente, no de la arquitectura.)
+  Caddy sin usuario o con hash inválido: se niega a arrancar.
+- `docs/troubleshooting.md`: "The dashboard login"; "No live updates"
+  reescrita. GATEWAY-DIRECTIVES: §1.5, §3 (`proxy`, seis servicios), G13.
+
+### Next steps / open questions
+- Usuario: aprobar los archivos de credenciales por servicio (diseño propuesto
+  en la respuesta: `secrets/<servicio>.env` escritos por el script, sin copiar
+  y pegar).
+
+---
+
+## 2026-10-27 — Decisiones de seguridad y `plot_history`
+**Time:** 09:20–09:35 (aprox)
+**User request:** respuestas a los abiertos del paso 8 — (1) explicar la
+arquitectura de puertos (localhost / localhost + proxy) con diagramas; (2)
+qué servicio usa qué credencial; (3) ok al número sintético; (4) sí a usar el
+dashboard en terreno sin internet (más adelante: mapas y batimetría de San
+Joaquín e Isla de Pascua, demo offline para SASIPA); (5) qué es mejor para el
+receiver como root; (6) explicar los menores. `plot_history` si produce series
+de tiempo estilo IEEE (sí: ancho de doble columna IEEE, estilo paper).
+
+### Actions taken
+- (3) Número real reemplazado por `123456789` (cable `07 5B CD 15`; leído en
+  little-endian, `365779719`) en fixtures, tests, directivas y bitácora. Cero
+  apariciones del real.
+- (4) `monitor/static/vendor/`: Leaflet 1.9.4, Chart.js 4.6.1 (lo que hoy
+  resolvía `@4`), adapter date-fns 3.0.0, socket.io-client 4.4.1, con licencias.
+  `fetch.sh` baja cada archivo de jsDelivr y unpkg, exige que sean idénticos y
+  escribe `SHA256SUMS`. `base.html` sin CDN. Tests: ninguna página carga
+  scripts/estilos externos; cada archivo coincide con su hash. Solo quedan
+  externos los tiles de OpenStreetMap (la tarea de mapas offline).
+- (5) Receiver sin root: usuario `gateway` en el grupo `dialout`. Verificado con
+  el `/dev/ttyS0` del host (`root:dialout`, gid 20): ese usuario lo abre; uno
+  fuera de `dialout`, `Permission denied`. Test en `TestHardening`.
+- `tools/plot_history.py` + `tools/plotstyle.py` portados:
+  `python -m tools.plot_history` (sin `sys.path`), cuenta de solo lectura,
+  roles y colores desde el deployment (el monorepo tenía la lista de nodos y
+  sitios en el código), `--format png|pdf|svg` (PDF con fuentes Type 42),
+  ceros conservados por defecto (`--drop-zeros` solo para datos del monorepo:
+  ahora un SNR de 0.0 dB es real), labels escapados en InfluxQL, campos
+  validados, error explícito con credenciales rechazadas.
+- Prueba en vivo: 2 h simuladas por el receiver real con una caída de 30 min →
+  figuras PNG/PDF desde la base con la cuenta de lectura. La figura mostró un
+  error heredado: la línea cruzaba la caída cuando `device` y `environment`
+  comparten segundo (mediana de intervalos = 0 desactivaba el corte) →
+  corregido (solo intervalos positivos) con test; regenerada, corta bien.
+- `tests/test_plot_history.py` (13). **229 tests en verde.**
+- La limpieza final del scratchpad fue bloqueada por el chequeo de seguridad
+  (un `rm` dentro de `sh -c`); quedaron ahí la copia del stack de prueba, las
+  figuras y los arneses de equivalencia.
+
+### Next steps / open questions
+- Usuario: elegir entre puertos solo-localhost (túnel SSH) y localhost + proxy
+  con login; aprobar archivos de credenciales por servicio.
+- Más adelante: mapas offline (tiles) y batimetría de San Joaquín e Isla de
+  Pascua para el demo sin internet.
+
+---
+
+## 2026-10-27 — Paso 8: revisión de seguridad
+**Time:** 09:10–09:20 (aprox)
+**User request:** "sí" al paso 8.
+
+### Actions taken
+- La skill `/security-review` no corre aquí (necesita commits y `origin/HEAD`);
+  revisión a mano de todo el repositorio.
+- Barrido de secretos (G9): nada en lo que se commitearía; `.env`,
+  `configuration.env`, `mqtt/pwfile` ignorados; imágenes sin secretos (allowlist).
+- Corregido (y verificado en vivo, proyecto `gwtest`, ya desmontado):
+  - **InfluxDB sin autenticación** en `0.0.0.0:8086` → `INFLUXDB_HTTP_AUTH_ENABLED`
+    + cuentas de mínimo privilegio: Telegraf escribe con `INFLUXDB_WRITE_USER`
+    (`skip_database_creation`), el dashboard lee con `INFLUXDB_READ_USER`; el
+    admin solo para mantenimiento. Sin credenciales: 401; la cuenta de lectura
+    no puede `DROP`.
+  - **El feed en vivo reenviaba los mensajes** (números de teléfono) a cualquier
+    navegador, sin que el frontend los usara → el dashboard se suscribe solo a
+    `position`/`device`/`environment`, y la cuenta `monitor` del ACL solo puede
+    leer esos (verificado: `mosquitto_sub` como `monitor` sobre `+/message`
+    no recibe nada).
+  - **MQTT publicado en todas las interfaces sin TLS**, sin publicadores remotos
+    desde que se quitaron los collectors → `127.0.0.1:1883`. Listener websocket
+    (9001/9002) sin uso → quitado.
+  - **Logs sin límite** con el texto de los mensajes → `json-file` 10 MB × 3
+    en todos los servicios.
+  - **El dashboard corría como root** → usuario `monitor` (uid 999).
+  - `init-credentials.sh` genera también las contraseñas de InfluxDB (no quedan
+    `change_me`).
+- De paso, falla funcional heredada: los gráficos de RSSI/SNR/saltos no se
+  actualizaban en vivo (la clave `rx_metrics` no corresponde a ningún tópico).
+- `tests/test_infrastructure.py::TestHardening` (6) fija cada corrección.
+  **213 tests en verde.**
+- GATEWAY-DIRECTIVES: §1.5, §3, nuevos G11 (auth InfluxDB) y G12 (feed solo
+  telemetría), §6 paso 8.
+
+### Abierto, para decisión del usuario
+1. **8086 y 5000 siguen en todas las interfaces.** InfluxDB ahora pide
+   credenciales; el dashboard no tiene autenticación (cualquiera en la red ve
+   posiciones y telemetría). Propuesta: 8086 → `127.0.0.1` (túnel SSH para
+   herramientas remotas); 5000 → `127.0.0.1` detrás de un proxy con auth, o
+   aceptarlo si la red es de confianza.
+2. **Todos los contenedores reciben todos los secretos** (`env_file:
+   configuration.env` compartido): el receiver, que procesa tráfico de radio no
+   confiable, tiene la contraseña admin de InfluxDB. Propuesta: un archivo de
+   entorno por servicio.
+3. **Número de teléfono real** (el del handset de la captura del orden de
+   bytes) en `tests/fixtures/packets.py`, `golden.py`,
+   `test_payload_contract.py`, GATEWAY-DIRECTIVES y esta bitácora. Reemplazar
+   por uno sintético antes de publicar (el test de orden de bytes necesita
+   recalcular los bytes del cable).
+4. **Librerías del frontend desde CDN sin SRI**, dos con versión mayor flotante
+   (`chart.js@4`, adapter `@3`). Propuesta: copiarlas a `monitor/static/`
+   (además funciona sin internet en terreno).
+5. **El receiver corre como root** (necesita el puerto serie). Usuario no root
+   con grupo `dialout`; requiere probarlo con hardware.
+6. Menores: imágenes base por tag, no por digest; eventlet deprecado;
+   `init-credentials.sh` pasa contraseñas como argumentos de `docker run`
+   (visibles en `ps` un instante); `FLASK_DEBUG`.
+- Pendiente detectado: `tools/plot_history.py` figura en §3 pero ningún paso
+  de §6 lo porta.
+
+---
+
+## 2026-10-27 — Sin collectors; el texto de los mensajes PBX en la terminal
+**Time:** 08:55–09:10 (aprox)
+**User request:** los collectors no van en esta implementación. Opción A
+(quitar todo lo que solo existía para ellos), y loguear en la terminal el texto
+de los mensajes que llegan por el PBX.
+
+### Actions taken
+- Quitado: el kind `pbx` de `publish.KINDS`; la entrada de Telegraf hacia
+  `pbx_health`; las cuentas `p1`/`p2` (ACL, `init-credentials.sh`,
+  `configuration.env.example`); la sección "collector ports are crossed" de
+  troubleshooting; comentarios que los suponían (`mosquitto.conf`, ACL).
+  `pbx_message` se queda: lo produce el receiver.
+- GATEWAY-DIRECTIVES: §1.3 (sin `pbx`), §1.4 (tres mediciones), §1.5 (tres
+  cuentas; solo escribe el gateway), §3 (sin fila de collectors), §3.2 reducida
+  a la decisión y lo que se pierde (no se puede separar pérdida BLE / UART /
+  aire en los mensajes), §3.1 (log del texto), §5 ("Until it is decided"
+  ajustado; la tabla de lecturas queda como registro), §6 paso 7 descartado.
+- `gateway/payload.py`: `pbx_frame(decoded)`, compartida por
+  `to_message_payload()` y el receiver.
+- `gateway/receiver.py`: una línea `[MSG]` por mensaje deduplicado — origen,
+  destino o `broadcast`, nodo, canal, saltos, RSSI, SNR y el texto. Caracteres
+  de control escapados (un mensaje no puede mover el cursor, colorear el log ni
+  falsificar otra línea); lo que no es UTF-8, en hex; las tramas malformadas
+  también. El texto sigue sin publicarse por MQTT salvo `capture_content`.
+- `tests/test_receiver.py`: `TestMessageLog` (7). **207 tests en verde.**
+
+### Decisions
+- Log siempre activo, sin variable de entorno: es lo pedido.
+- Se loguea antes de publicar, para que el texto aparezca aunque falle la
+  publicación.
+
+### Outcomes
+- Ejemplo: `[MSG] 123456789 -> broadcast via node-1 (TEXT_MESSAGE_APP, ch 0,
+  hop 1, rssi -95, snr 3.5): "reunion a las 18:00"`.
+
+### Next steps / open questions
+- Privacidad: `docker compose logs` conserva el texto en el host (driver
+  json-file, sin rotación configurada). Decidir en el paso 8 si se rota o se
+  limita.
+- Paso 8: revisión de seguridad.
+
+---
+
+## 2026-10-26 — Paso 6: el dashboard (`monitor/`)
+**Time:** 16:45–17:00 (aprox)
+**User request:** "sí" al paso 6.
+
+### Actions taken
+- `gateway/deployment.py` lee `site.surveyed` con las reglas de la plataforma
+  (bloque todo nulo = sin medir; a medias = error; `lat`/`lon` en rango y ≠ 0;
+  `site.planned` nunca se lee). Fixture con N1 medido y P1 sin medir; 4 tests.
+- `gateway/publish.py`: `describe_refusal()` pública, para que el dashboard
+  nombre la causa G5 igual que el receiver.
+- `monitor/` como paquete (`python -m monitor`, sin trucos de path):
+  `param.py` (tópico `<prefijo>/+/+` y `CLIENT_ID` desde `MQTT_TOPIC_PREFIX`;
+  base desde `INFLUXDB_DB`, la de Telegraf; `MONITOR_ALLOWED_ORIGINS`), `utils.py`
+  (InfluxDB y suscriptor MQTT), `app.py` (`create_app`), `__main__.py`
+  (eventlet), `Dockerfile` (contexto raíz: copia `gateway/` y `monitor/`),
+  `requirements.txt` (pins del monorepo + pyyaml). Plantillas y estáticos
+  copiados.
+- Fallas silenciosas del monorepo corregidas:
+  - consulta fallida → `[]` con 200 (el mapa decía "no nodes"): ahora 503 con
+    el motivo, y `map.html` / `dashboard.html` lo muestran;
+  - si InfluxDB no respondía al arrancar, el cliente quedaba en `None` para
+    siempre: ahora cada consulta reintenta (verificado en vivo: el dashboard
+    arrancó antes que la base y se recuperó);
+  - CORS fijo en `http://localhost:5000`: abierto desde otra máquina, sin
+    actualizaciones en vivo y sin aviso → configurable;
+  - vista inicial fija en San Joaquín y sin reencuadre con un solo nodo →
+    vista mundial y encuadre a los nodos; Leaflet sin versión → `@1.9.4`.
+- Compose: servicio `web` (prefijo `:?`, `MESH_DEPLOYMENT` `:?`, `deployments/`
+  `:ro`). `.dockerignore` permite `monitor/`. Tests de infraestructura
+  extendidos a `web` y a las plantillas (sin prefijo literal).
+- `tests/test_monitor.py` (15). **200 tests en verde.**
+- **Prueba en vivo** (proyecto `gwtest`): cliente Socket.IO desde el origen
+  permitido recibe los 4 mensajes del receiver bajo `gwtest/...`; otro origen,
+  rechazado (400); `/api/nodes` con la posición medida y el GPS al lado;
+  `/api/recent` con historial; páginas 200; InfluxDB detenido → 503 con el
+  motivo, y al volver → 200. Todo desmontado.
+- `docs/troubleshooting.md`: "The dashboard cannot query InfluxDB" y "No live
+  updates in the dashboard". GATEWAY-DIRECTIVES §1.3, §3, §6.
+
+### Decisions
+- El dashboard importa el paquete `gateway` (regla del prefijo, lector de
+  deployments) en vez de duplicarlos.
+- `MESH_DEPLOYMENT` opcional fuera de compose (sin él, solo GPS, con WARNING al
+  arrancar); obligatorio en compose, como para el receiver.
+
+### Next steps / open questions
+- Paso 7: collectors (`node_logd`, `pbx_logd`) → `gateway/collectors/`.
+- eventlet está deprecado (aviso al importarlo); funciona, pero conviene migrar
+  a otro modo de Flask-SocketIO más adelante.
+- Paso 8: además de InfluxDB sin auth, las librerías del frontend vienen de CDN
+  sin SRI.
+
+---
+
+## 2026-10-26 — Paso 5: broker, Telegraf, InfluxDB y compose
+**Time:** 16:20–16:45 (aprox)
+**User request:** "sí" al paso 5; la prueba con radio real no es necesaria
+(ya se probó en el monorepo) → paso 4 marcado hecho.
+
+### Actions taken
+- `gateway/publish.py`: el prefijo se restringe a `[A-Za-z0-9._-]+` porque se
+  sustituye con `sed` en el ACL y en `telegraf.conf` (`&`, `|` lo romperían en
+  silencio). Test nuevo.
+- `telegraf/etc/telegraf.conf`: el del monorepo con `${MQTT_TOPIC_PREFIX}` en
+  los tópicos y `${INFLUXDB_DB}` como base (una sola fuente).
+- `mqtt/`: `mosquitto.conf`; `aclfile.template` con `{prefix}`; `entrypoint.sh`
+  la renderiza en cada arranque del broker desde la misma variable (no un
+  archivo generado una vez que pueda quedar viejo) y valida el prefijo con la
+  misma regla; `init-credentials.sh` portado (mensajes con nombres de servicio).
+- `docker-compose.yaml` (4 servicios; `web` en el paso 6): `${VAR:?}` para
+  prefijo, deployment y puerto serie; `mqtt/` montado `:ro` (el entrypoint de
+  la imagen hacía `chown -R` del directorio del host a uid 1883 en el
+  monorepo); `deployments/` montado `:ro`; sin `container_name` fijo.
+- `Dockerfile` del receiver; `.dockerignore` como lista de permitidos
+  (`requirements.txt`, `gateway/`, `main.py`): ni `.venv` ni secretos (G9).
+- `configuration.env.example`; `.gitignore` + `data/`, `log/`.
+- `tests/test_infrastructure.py` (10): cada kind de `publish.KINDS` consumido
+  exactamente una vez hacia su medición; tags y time key por la tabla §1.4;
+  cuentas de `init-credentials.sh` = usuarios del ACL; reglas del ACL; ningún
+  prefijo literal; compose exige el prefijo en los tres servicios y los
+  obligatorios del receiver; montajes `:ro`. **181 tests en verde.**
+- **Prueba en vivo** (copia del repo en el scratchpad, proyecto `gwtest`,
+  credenciales de `init-credentials.sh`):
+  - Telegraf conectado en sus 4 entradas con su cuenta; ACL renderizado para
+    `gwtest` (0600, mosquitto); `mqtt/` del host sin cambio de dueño.
+  - El `Receiver` real, con paquetes de fixtures, contra el broker real: las
+    **4 mediciones pobladas** con sus tags; `dst_id` vacío en broadcast;
+    `malformed=1`; filas `pdr` del sweep; `pbx_health` de `p1`.
+  - `p1` publicando en `gwtest/p2/pbx`: descartado por el ACL **sin log** en
+    el broker (anotado en troubleshooting).
+  - Contraseña equivocada: `Not authorized — mqtt/pwfile and configuration.env
+    must be generated together...` (G5).
+  - Imagen del receiver: solo `gateway/`, `main.py`, `requirements.txt`. Sin
+    configuración: exit 2 con el motivo. Con todo configurado: carga el
+    deployment montado, imprime el sha256, conecta al broker; `/dev/null` como
+    radio → traceback y exit 1. Compose sin prefijo: se niega a arrancar.
+  - Todo desmontado (contenedores, volumen, red, imagen) y el scratchpad limpio.
+- `docs/troubleshooting.md`: G5 primero; nuevas entradas "Published, never
+  stored" (G4, ACL silencioso), "The gateway restarts in a loop" (exit 2/1),
+  "Drift warnings" (G10); lo del lado de los nodos remite a la plataforma.
+- GATEWAY-DIRECTIVES §1.3, §1.5, §3, §6 (pasos 4 y 5 hechos).
+
+### Decisions
+- ACL renderizado al arrancar el contenedor, no generado una vez.
+- Sin `container_name` fijo: troubleshooting usa `docker compose logs <servicio>`.
+
+### Next steps / open questions
+- Paso 6: `monitor/` (rutas `/`, `/map`, `/dashboard`, `/api/...`), con
+  `SUBSCRIBE_TOPIC` derivado de `MQTT_TOPIC_PREFIX`; el `.dockerignore` deberá
+  permitir lo que su imagen copie.
+- Paso 8 (seguridad): InfluxDB publica 8086 en el host sin
+  `INFLUXDB_HTTP_AUTH_ENABLED` (como en el monorepo): lectura/escritura sin
+  credenciales desde la red.
+
+---
+
+## 2026-10-26 — Paso 4: el receiver
+**Time:** 16:05–16:20 (aprox)
+**User request:** "sí" a seguir con el paso 4.
+
+### Actions taken
+- `requirements.txt`: `meshtastic==2.7.8`, `Pypubsub==4.0.7`, `pyyaml==6.0.3`
+  (las versiones de la plataforma y del monorepo).
+- `gateway/deployment.py`: lector propio. Semántica verificada en el código de
+  la plataforma: nombre publicado = `label` o `ref`; nodos conocidos = los que
+  tienen `node_id`; cadencias divididas por `cadence_scale`; un flujo que no se
+  emite está ausente (null/0 es error); `node_id` = `!` + 8 hex. Estricto en lo
+  que lee, ignora el resto; sha256 de los bytes; rechaza duplicados (ref,
+  nombre publicado, `node_id`) y `meta.deployment` distinto del archivo;
+  informa todos los problemas a la vez.
+- `gateway/config.py`: obligatorios `MESH_DEPLOYMENT`, `MQTT_TOPIC_PREFIX`,
+  `GATEWAY_SERIAL_PORT`; el resto con default. `CLIENT_ID` por defecto
+  `<prefijo>-gateway` (dos clientes con el mismo id se expulsan mutuamente del
+  broker). `PDR_WINDOW_SEC` con override por flujo; `PDR_SWEEP_INTERVAL_SEC`.
+- `gateway/receiver.py`: el cableado de `MeshReceiver`, con relojes inyectados.
+  Descarta y cuenta por motivo: propios, encrypted/empty, remitente
+  desconocido, duplicados, no publicables. Reboot antes de puntuar; hold de
+  `device_ts` por `(node_id, flujo)`; warnings G10 una vez cada uno (remitente
+  desconocido, flujo sin cadencia, `cadence_violated`); `report()`.
+  `on_receive` nunca lanza: cuenta el error y loguea el traceback.
+- `gateway/startup.py`: warnings de arranque — la radio no está en el deployment
+  o no es `gateway`; rol distinto de `CLIENT_MUTE` (G6); sweep no menor que la
+  cadencia más corta.
+- `main.py`: entrada del contenedor. Sale con 2 si la configuración o el
+  deployment son inválidos; con 1 si se pierde el enlace serie
+  (`meshtastic.connection.lost`: el monorepo no lo escuchaba, y un USB
+  desconectado dejaba el contenedor vivo y sin datos). SIGTERM → reporte final.
+  Reporte JSON cada 10 min.
+- Tests: `test_deployment.py` (17), `test_config.py` (12, incluye `main.py` como
+  subproceso), `test_receiver.py` (22: guardias de filtrado, paquetes
+  malformados y los 7 de `TestPdrIntegration` del monorepo, más hold, G10 y
+  fallos). **171 en verde.** Mutaciones del receiver: 7/7 detectadas.
+- Equivalencia por escenario (24 eventos, relojes controlados: pérdidas,
+  temprano, 2 sweeps, reboot, duplicado, mensajes, desconocido, flujo sin
+  cadencia, telemetría sin hora) contra el `MeshReceiver` real: 25
+  publicaciones en ambos, **24/25 idénticas**; la diferencia es el hold de
+  `device_ts`.
+- `.env.example` completo; `deployments/README.md` (los warnings);
+  GATEWAY-DIRECTIVES §3 y §6.
+
+### Decisions
+- Lo que puede apuntar a la malla, el espacio de tópicos o la radio
+  equivocados es obligatorio; lo inocuo tiene default.
+- Los paquetes propios se descartan antes de contarse como oídos. El chequeo
+  exige id no nulo (el monorepo descartaba si ambos eran `None`).
+- `capture_content` no se expone por entorno (el monorepo tampoco lo hacía).
+
+### Outcomes
+- Paso 4: código y tests listos; falta la comprobación con una radio real.
+
+### Next steps / open questions
+- Usuario: comprobar con una radio real (puede hacerse con el compose del paso 5).
+- Paso 5: Dockerfile (`main.py`, `gateway/`, `deployments/` en `/app`) y
+  compose; Telegraf y el ACL con `MQTT_TOPIC_PREFIX` (G4);
+  `init-credentials.sh`; `docs/troubleshooting.md` con G5 primero.
+- NaN en una métrica: hoy es un error contado y el paquete no se publica.
+  Decidir si `to_payload` lo trata como ausente.
+
+---
+
+## 2026-10-26 — Paso 3: `publish.py` con prefijo en `.env`
+**Time:** 16:00–16:05 (aprox)
+**User request:** "sí, que sea .env": el prefijo de tópico (y los parámetros
+del PDR) van en `.env`, no en `deployments/`.
+
+### Actions taken
+- `requirements.txt` (`paho-mqtt==2.1.0`, el pin del monorepo) y `.venv` del
+  gateway. Los tests ahora corren con `.venv/bin/python`.
+- `gateway/publish.py`, desde `src/gateway/mqtt_connector.py`:
+  - `topic_for(prefix, label, kind)`: `kind` solo de `KINDS` (los seis de §1.3);
+    prefijo y label deben ser un único nivel de tópico (sin `/ + #` ni espacios).
+  - `topic_prefix_from_env()`: `MQTT_TOPIC_PREFIX` obligatorio, sin default, sin
+    recortar espacios (recortado aquí y no en Telegraf divergirían en silencio).
+  - `MQTTConnector(broker, topic_prefix, ...)` + `publish_payload(label, kind,
+    payload)` en lugar de las cinco `publish_env/device/...` (el receiver se
+    reescribe igual; `env` vs `environment` era una trampa).
+  - Verificado en el código de paho 2.1.0: con QoS 1, `MQTT_ERR_NO_CONN` deja el
+    mensaje encolado y paho lo reenvía al reconectar. El monorepo lo imprimía
+    como `ERROR publishing`. Ahora: `queued` (se enviará) y `dropped` (se
+    perdió), contados por tópico, para que el receiver los reporte.
+  - Rechazo de CONNACK por credenciales (134/135) nombra la causa G5 en el log y
+    en el `RuntimeError` de `wait_until_connected`.
+  - `json.dumps(allow_nan=False)`: un NaN levanta error en vez de publicar JSON
+    inválido que Telegraf descartaría entero.
+- `tests/test_publish.py` (14 tests): los tres de formato de tópico diferidos del
+  monorepo (ahora los seis kinds), prefijo, ruteo con cliente falso, encolado vs
+  descarte, NaN, G5. Seis mutaciones (default de prefijo, trim, NO_CONN como
+  pérdida, NaN, sin pista G5, cualquier kind): todas rompen tests.
+- `.env.example` con `MQTT_TOPIC_PREFIX`.
+- GATEWAY-DIRECTIVES: §0.1 (qué va en `.env` y por qué), §1.3 (`{prefix}`), §3,
+  §6 paso 3 hecho.
+- **120 tests en verde.**
+
+### Decisions
+- Prefijo de un solo nivel. Más simple de sustituir en Telegraf y en el ACL.
+- Los parámetros del PDR se agregan a `.env.example` cuando el receiver los lea
+  (paso 4), no antes: una variable documentada que nadie lee engaña.
+
+### Next steps / open questions
+- Paso 5 (G4): `telegraf.conf`, el ACL de Mosquitto y `init-credentials.sh`
+  tienen `meshtastic-testbed` literal; deben usar `MQTT_TOPIC_PREFIX` (Telegraf
+  admite `${VAR}`; el ACL hay que generarlo). En compose, `${MQTT_TOPIC_PREFIX:?}`
+  para que falte = error.
+- Paso 6: `SUBSCRIBE_TOPIC` del dashboard, derivado del mismo prefijo.
+- Paso 4: un NaN en una métrica ahora levanta `ValueError` al publicar; el
+  receiver debe contarlo y reportarlo (o `to_payload` tratar NaN como ausente:
+  decidir con el usuario si aparece).
+
+---
+
+## 2026-10-26 — Paso 2: `CadencePdrTracker`
+**Time:** 15:50–16:00 (aprox)
+**User request:** "ok" a la recomendación de terminar el proyecto en orden,
+empezando por el paso 2 de §6: portar el tracker intacto, sus tests y su
+documento de diseño.
+
+### Actions taken
+- `gateway/pdr.py`: la clase extraída de `src/gateway/mesh_receiver.py`
+  (líneas 38–178); `diff -w` contra el monorepo: idéntica. Solo se agrega el
+  docstring del módulo.
+- `tests/test_pdr_tracker.py`: copia; el diff contra el monorepo es solo el
+  bloque `sys.path`/import y dos líneas del docstring. **26 tests sin cambios en
+  verde (G7)**, incluida la regresión del flag `restart`.
+- Los golden de telemetría del paso 1 ahora usan el snapshot del tracker real
+  (antes: el literal `FIRST_RX_PDR` pasado como entrada). `golden.py` registra
+  `CADENCE` y `PDR_WINDOW_SEC` con que se capturaron (los defaults del monorepo).
+  Cubre el `TestPdrWindowSlots` diferido.
+- `test_payload_contract.py`: `cadence_violated` es int en primera recepción,
+  en horario, temprana y en sweep, pasando por `to_payload()` (el test diferido
+  del monorepo). Va aquí para no alterar el archivo portado.
+- `docs/architecture/pdr-cadence-tracker.md` portado (en castellano a
+  propósito). 9 correcciones de referencias obsoletas: rutas;
+  `mesh_config.json` → `deployments/`; el provisioning es de la plataforma;
+  `SEEN_MAX` (el documento decía 200, el código usa 50); `FRAME_HAS_SEQ` no
+  existe (el byte VERSION es el mecanismo); referencias. Nota agregada:
+  `pdr_cfg` no puede ir en `deployments/` (lector estricto de la plataforma +
+  archivo idéntico en ambos repos).
+- Mutaciones de los invariantes de §2 (`floor`, sin `restart`, PDR con un
+  paquete, booleano, doble cobro del sweep): las cinco rompen tests.
+- **106 tests en verde.** GATEWAY-DIRECTIVES §6: paso 2 marcado hecho.
+- Bitácora: se quitaron las horas estimadas de las rondas de la entrada
+  anterior; eran posteriores a la hora real.
+
+### Decisions
+- Ni una línea de lógica cambiada (directiva §2).
+
+### Outcomes
+- G7 cumplido.
+
+### Next steps / open questions
+- Paso 3: dónde va el prefijo de tópico — `.env` (recomendado) o una sección
+  `gateway` en el formato de deployment de la plataforma. Preguntar.
+- Paso 4, además de lo ya listado: el lector debe dividir las cadencias por
+  `meta.cadence_scale` (banco); ubicación de `pdr_cfg` (`window_sec`,
+  `sweep_interval_sec`), con la misma restricción que el prefijo; el reloj
+  monotónico lo garantiza el receiver; tests diferidos de `TestPdrIntegration`
+  (reboot por uptime, sweep publica en `.../pdr`, dedup no infla PDR, flujos
+  separados, sin cadencia → sin PDR).
+
+---
+
+## 2026-10-26 — Cómo depende el gateway de la plataforma (§0.1)
+**Time:** 14:30–15:50 (aprox)
+**User request:** generar `meshtastic-gateway` (repo vacío). Primera tarea:
+resolver GATEWAY-DIRECTIVES.md §0.1 — cómo depender de una plataforma que no
+se instala — presentando opciones y preguntando, sin implementar. Después, si
+se aprueba, paso 1 de §6 (tests del contrato publicado) en paralelo.
+
+### Actions taken
+- Leídos GATEWAY-DIRECTIVES.md (completo) y REFACTOR-PLATFORM-GATEWAY.md (§0–§1).
+- Inspección de solo lectura de `../meshtastic-platform`: CLAUDE.md, memoria
+  `no-install-entry-scripts`, `decode/__init__.py`, `registry/loader.py`,
+  `tests/test_hard_rules.py`, `.github/workflows/ci.yml`, `.gitmodules`.
+- Prueba en scratchpad (sin escribir bytecode en la plataforma): importar
+  `meshtastic_platform` desde fuera de su clon, vía symlink y vía copia.
+
+### Decisions
+- Ninguna de arquitectura: pendiente de respuesta del usuario.
+- Convención de bitácora tomada del CLAUDE.md de la plataforma (el gateway aún
+  no tiene CLAUDE.md).
+
+### Outcomes
+- `registry.deployments_dir()` resuelve `deployments/` relativo al clon de la
+  plataforma (`Path(__file__).resolve().parents[2]`). Vía symlink al paquete de
+  un clon: encuentra los 3 deployments. Vía copia del paquete: `available()`
+  devuelve `[]` sin error. Una copia vendorizada o instalada con pip pierde el
+  registro en silencio salvo que se fije `MESH_DEPLOYMENTS_DIR`.
+- `decode` + `registry` importan solo stdlib + pyyaml; no cargan `meshtastic`.
+- La plataforma tiene 0 commits: no hay commit que fijar en un submódulo todavía.
+- El CLAUDE.md de la plataforma anuncia `meshtastic-gateway` como submódulo en
+  su `external/`. Si el gateway a su vez fija la plataforma como submódulo, los
+  submódulos quedan mutuos: `--recurse-submodules` anida clones.
+- Discrepancias con los documentos: el test de la regla de dependencia se llama
+  `tests/test_hard_rules.py` (no `test_dependency_rule.py`); `FUNCTIONS` ya
+  incluye `"pbx"`, así que la premisa de §5 cambió (§5 sigue diferido, no se toca).
+
+### Respuesta del usuario
+- **Submódulo**: sí. La plataforma se fija como submódulo del gateway.
+- **Sin `sys.path` ni `PYTHONPATH`**: la arquitectura son contenedores Docker
+  que corren un `main.py` (caso receiver). Cada imagen coloca
+  `meshtastic_platform/` (y `deployments/`) al lado de su `main.py`, como ya
+  hace `monitor/Dockerfile` del monorepo con `common/`. Verificado: con
+  `deployments/` junto al paquete, `_REPO_ROOT` (= `parents[2]`) lo encuentra.
+- **La plataforma contiene a ambos** (`meshpbx` y `meshtastic-gateway`) y
+  tendrá secciones de integración (membresía) para cada uno. Interpretado como
+  submódulos mutuos → regla: nunca `--recurse-submodules`; CI del gateway con
+  `submodules: true`, no `recursive`. **Por confirmar con el usuario.**
+- **Paso 1 aprobado.**
+
+### Paso 1 de §6 — contrato publicado
+- `git ls-remote` de OF306PUC/meshtastic-platform: el remoto existe pero está
+  vacío → el submódulo no se puede agregar todavía. El paso 1 avanzó igual.
+- Creado `gateway/payload.py`: `to_payload()` (telemetría), `to_message_payload()`
+  y `parse_pbx_frame()` (tramas PBX: el decoder de la plataforma deja
+  PRIVATE_APP opaco por decisión; decodificarlas es del gateway). Puros: el
+  llamador pasa `received_at` y el snapshot de PDR.
+- `tests/fixtures/packets.py`: copia literal del monorepo. `tests/fixtures/golden.py`:
+  dicts esperados — telemetría desde `test_decode_golden.py` del monorepo;
+  mensajes **capturados ejecutando su `MeshReceiver`** sobre los mismos fixtures.
+- `tests/test_payload_golden.py` (igualdad exacta de dicts, más estricto que el
+  `VOLATILE` del monorepo) y `tests/test_payload_contract.py` (regresiones de
+  `test_mesh_receiver.py` que son del payload). **44 tests en verde** en una
+  estructura tipo imagen (scratchpad: paquete de la plataforma copiado al lado).
+- Sin la plataforma al lado: `ModuleNotFoundError` (falla ruidosa, no silencio).
+- **Equivalencia contra el monorepo**: 37 casos (telemetría, hops, mensajes
+  válidos/malformados/v2/no-bytes, capture_content) pasados por su
+  `_on_receive` real y por `decode()`→`to_payload()`: 35 idénticos; las 2
+  diferencias son exactamente D1 (`hop`) y D2 (`snr`).
+- Mutaciones (renombrar `humidity`, `malformed` bool, omitir `dst_id`, publicar
+  ausentes): las cuatro rompen tests.
+- `.gitignore` mínimo (G9: `.env`, `configuration.env`, `mqtt/pwfile`).
+
+### Decisiones del paso 1
+- **D1/D2 con la semántica nueva** (hop = hopStart si falta hopLimit; snr 0.0
+  si falta rxSnr), como pide la memoria `protobuf3-absent-means-zero` de la
+  plataforma. Los tests del monorepo que esperaban `None` codificaban el bug.
+- **`device_ts` conserva el respaldo del monorepo** (hora del host = `received_at`
+  si el nodo no manda `time`), fijado por un test con nombre. Es un valor
+  fabricado; cambiarlo cambia valores publicados → decisión del usuario.
+- `to_payload`/`to_message_payload` lanzan `ValueError` si se les pide un flujo
+  o portnum que el paquete no trae, en vez de publicar algo vacío.
+- `label` se pasa explícito, no se lee de `decoded.node`: el payload no depende
+  de la forma interna del `Node` del registro (G8).
+
+### Segunda respuesta del usuario
+- **Corrige la interpretación anterior: no hay submódulos mutuos.** Solo la
+  plataforma contiene al gateway (`external/meshtastic-gateway`); el gateway NO
+  lleva `external/meshtastic-platform`. El gateway tiene además su propio
+  `deployments/` para configurarlo por sí solo.
+- **`device_ts`: no publicar la hora del host; mantener el valor previo.**
+
+### Acciones (segunda ronda)
+- `to_payload(..., held_device_ts=)`: sin hora en el paquete publica el
+  `device_ts` previo del flujo que guarda el llamador; sin previo, lo omite.
+  Nunca `received_at`. `TestDeviceTs` reescrito (5 tests). **47 tests en verde.**
+- Equivalencia contra el monorepo: 33/37 idénticos; las 4 diferencias son las
+  deliberadas — D1, D2 y `device_ts` (telemetría sin `time` y posición vacía,
+  donde el monorepo ponía la hora del host).
+- `deployments/README.md`: para qué es el directorio propio y la regla de no
+  duplicar un deployment en ambos lados.
+- Verificado: los tests corren sin `sys.path` desde la raíz de la plataforma,
+  `python -m unittest discover -s ../meshtastic-gateway/tests -t ../meshtastic-gateway`
+  (47 OK; `-t` va primero en el path, así que `tests` es el del gateway).
+  Docker Compose v2.40 soporta `additional_contexts`.
+
+### Tercera respuesta del usuario
+- **Rechaza copiar `meshtastic_platform/` desde un checkout** (`PLATFORM_DIR`).
+  El gateway es un contenedor Docker cuya configuración y parámetros del
+  receiver vienen de su `deployments/` y de un `.env`.
+- **El submódulo en la plataforma es referencial** (para que cada usuario lo
+  encuentre ahí), no un mecanismo de build. El emparejamiento
+  plataforma-gateway se hace solo por la membresía en los deployments.
+- **Los commits los hace el usuario.**
+
+### Acciones (tercera ronda)
+- `deployments/README.md` corregido: decía que dentro de la plataforma mandaban
+  los deployments de la plataforma; ahora dice que el contenedor se configura
+  con este directorio + `.env` y que la membresía empareja con la plataforma.
+- Memoria actualizada (dependencia; el usuario hace los commits).
+
+### Cuarta respuesta del usuario
+- **B: el gateway tiene su propio decoder y lector de YAML**, "así el gateway
+  puede adaptar ese decode para sus necesidades". Rechazada A (traer la
+  plataforma desde su remoto git en el build).
+- Deployments duplicados en ambos repos: **documentar, con warning donde se pueda.**
+
+### Acciones (cuarta ronda)
+- `gateway/decode.py`: fork literal de `meshtastic_platform/decode/__init__.py`;
+  solo cambia el docstring (procedencia, "no se mantienen sincronizados", quién
+  parsea PRIVATE_APP). Se portó sin adaptar para que cada adaptación futura sea
+  un cambio visible por separado.
+- Portados `tests/test_decode.py` y `tests/test_decode_golden.py` de la
+  plataforma (imports y dos docstrings ajustados). Funcionan con los fixtures
+  del monorepo, que son un superconjunto de los de la plataforma.
+- `payload.py` y los tests importan `gateway.decode`. `tests/test_hard_rules.py`:
+  prohíbe importar `meshtastic_platform` y tocar `sys.path`; verificado que
+  falla si se reintroduce el import.
+- **79 tests en verde desde la raíz del gateway, sin la plataforma en el path.**
+  Equivalencia contra el monorepo con el decoder propio: 33/37, las mismas 4
+  diferencias deliberadas.
+- `deployments/README.md`: qué falla en silencio si la copia diverge y el
+  chequeo por SHA-256 (el mismo hash de bytes que la plataforma registra en
+  `session.json` de channel_study).
+
+### Quinta respuesta del usuario: "Sí, corrige" GATEWAY-DIRECTIVES.md
+- Versión 1.1. Encabezado: sin dependencia de código de la plataforma; este
+  archivo prevalece sobre REFACTOR-PLATFORM-GATEWAY.md (que no se tocó: es copia
+  del documento de la plataforma).
+- §0 frase central reescrita. §0.1 pasa de "decidir primero" a **resuelto**: la
+  decisión, sus cuatro puntos, la tabla de opciones rechazadas y el costo
+  aceptado (dos decoders a propósito). Tabla de frontera: cada lado con su
+  propio `decode()`; ambos `test_hard_rules.py`.
+- Nuevo §1.2b: las tres diferencias deliberadas de valores frente al monorepo
+  (D1 `hop`, D2 `snr`, `device_ts`).
+- §1.3: prefijo de tópico desde la configuración propia. §3: filas para
+  `decode.py`, `payload.py`, `deployments/`. §3.1: el snippet usa
+  `gateway.decode`, `decoded.flows` (propiedad, no método) y el hold de
+  `device_ts`; el inspector es el de la plataforma, ejecutado allá.
+- §4: G6 y G8 reescritos; nuevos G3c (`device_ts` nunca es el reloj del host) y
+  G10 (deployment idéntico a la copia de la plataforma, con los warnings).
+- §5: nota con el estado actual de la plataforma (`pbx` ya está en `FUNCTIONS`),
+  marcada como hecho, no como resolución; §5 sigue diferido.
+- §6: el gateway no espera a la plataforma; paso 1 marcado hecho; paso 4
+  ampliado (lector de deployments, hold, warnings G10).
+- 79 tests siguen en verde.
+
+### Next steps / open questions
+- Del lado de la plataforma (no se toca desde aquí): su CLAUDE.md y su memoria
+  `no-install-entry-scripts` dicen que el gateway reutiliza su código como
+  submódulo; ya no es así.
+- Paso 4 — warnings de deriva de deployments, a implementar en el receiver:
+  al arrancar, imprimir el sha256 del archivo con la instrucción de compararlo
+  con la copia de la plataforma; en marcha, advertir por remitentes
+  desconocidos (DecodeStats), `cadence_violated` y flujos recibidos sin cadencia
+  declarada.
+- Paso 4: lector de YAML propio (subconjunto: nodos, `node_id`, label,
+  `intervals`); estricto en lo que lee, falla ruidosamente.
+- El hold de `device_ts` (dict por `(node_id, flujo)`) vive en el receiver:
+  test pendiente en el paso 4.
+- Tests del monorepo **diferidos** a su paso (no perder):
+  - paso 2 (tracker): `cadence_violated` es int; `TestPdrWindowSlots`;
+    `TestPdrIntegration` ×7 (reboot, sweep, dedup no infla PDR, flujos separados).
+  - paso 3 (publish): formato de tópicos ×3 (`TOPIC_ENV/DEVICE/POSITION`).
+  - paso 4 (receiver): `TestFilteringGuards` (desconocido, loopback id/num,
+    dedup), `TestMalformedPackets` (None, {}, NODEINFO, sin `decoded`),
+    `received_at` reciente.
+- Paso 4: el receiver debe contar (DecodeStats) lo no publicado: remitentes
+  desconocidos, variantes de telemetría no mapeadas, portnums ignorados; y los
+  campos `extra` de métricas nuevas, que `to_payload` no publica.
+- Cómo corren los tests fuera de la imagen (CI y local) sin `sys.path`: se
+  decide al agregar el submódulo.

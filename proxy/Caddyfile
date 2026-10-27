@@ -1,0 +1,22 @@
+# The one door from the network into the stack: a login in front of the
+# dashboard. Everything else (dashboard, InfluxDB, MQTT) listens on the host's
+# localhost only (docker-compose.yaml).
+#
+# Plain HTTP on purpose: in the field there is no internet, so no certificate a
+# browser would trust. The password then travels inside the field WiFi, which
+# its WPA2 key protects.
+#
+# DASHBOARD_USER and DASHBOARD_PASSWORD_HASH (bcrypt) come from
+# secrets/proxy.env, written by mqtt/init-credentials.sh. If either is
+# missing, Caddy refuses to start rather than serve the dashboard without a login.
+{
+	auto_https off
+	admin off
+}
+
+:80 {
+	basic_auth {
+		{$DASHBOARD_USER} {$DASHBOARD_PASSWORD_HASH}
+	}
+	reverse_proxy web:5000
+}

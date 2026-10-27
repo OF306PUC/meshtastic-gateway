@@ -1,0 +1,64 @@
+# A synthetic deployment in the platform's format, for the gateway's tests.
+# node_ids match tests/fixtures/packets.py.
+meta:
+  deployment: test-mesh
+  kind: bench
+  description: gateway tests
+  firmware_target: "2.7.26"
+
+radio:                             # ignored by the gateway
+  region: ANZ
+  modem_preset: MEDIUM_FAST
+  channel_num: 45
+  channels:
+    - {index: 0, name: telemetry, psk_env: TEST_PRIMARY_PSK}
+
+nodes:
+  - ref: N1
+    label: node-1
+    function: node
+    status: deployed
+    node_id: "!0b64122b"
+    role: CLIENT
+    hop_limit: 1
+    antenna: {type: rubber, gain_dbi: 2.0}
+    site:
+      name: hill
+      surveyed: {lat: -27.1127, lon: -109.3497, alt_m: 120.5, alt_source: gps}
+      planned: {lat: -27.0, lon: -109.0, alt_m: null, alt_source: null}   # never read
+    intervals:
+      device: 120
+      environment: 120
+      position: 600
+    sensors: []
+
+  - ref: P1
+    function: pbx
+    status: deployed
+    node_id: "!11223344"
+    role: CLIENT
+    hop_limit: 2
+    site:                         # the template block, not filled in yet
+      name: null
+      surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
+    intervals:
+      device: 900
+    sensors: []
+
+  - ref: GW
+    function: gateway
+    status: deployed
+    node_id: "!aabbccdd"
+    role: CLIENT_MUTE
+    hop_limit: 1
+    intervals: {}
+    sensors: []
+
+  - ref: R1
+    function: receiver
+    status: planned
+    node_id: null
+    role: CLIENT_MUTE
+    hop_limit: 1
+    intervals: {}
+    sensors: []

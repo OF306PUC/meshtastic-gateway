@@ -1,0 +1,178 @@
+% The gateway's ports (option B, 2026-10-27): where each container listens, how
+% docker-compose.yaml publishes it on the host, and which account each flow uses.
+% Build from this folder: ./build.sh port-architecture  (font and colours: palette.tex).
+\documentclass[tikz,border=6pt]{standalone}
+\input{palette}
+\usepackage{pifont}                       % \ding{55}: the refused way in
+
+% zones go under the boxes' own backgrounds
+\pgfdeclarelayer{zones}
+\pgfsetlayers{zones,background,main}
+
+\definecolor{door}{HTML}{C0392B}          % reachable from the network
+
+\newcommand{\pfx}{\textless prefix\textgreater}
+\newcommand{\sub}[1]{{\scriptsize #1}}
+\newcommand{\listens}[1]{{\scriptsize\color{mtdark!75}listens on :#1}}
+\newcommand{\unpublished}{{\scriptsize\itshape\color{mtdark!60}not published}}
+
+\tikzset{
+  ctr/.style={gateway, fill=mtdark!9, minimum width=30mm, minimum height=13mm},
+  sock/.style={draw=mtdark!70, fill=white, rounded corners=1.5pt, font=\scriptsize,
+               inner sep=2pt, minimum height=4.5mm},
+  publish/.style={line width=2.6pt, draw=mtdark!28},
+  mqtt/.style={->, very thick, draw=mtgreen6},
+  http/.style={->, very thick, draw=mtdark!85},
+  serial/.style={->, very thick, draw=amber},
+  num/.style={circle, fill=mtdark, text=white, font=\tiny\bfseries,
+              inner sep=0pt, minimum size=3.8mm},
+  zone/.style={rounded corners=8pt, thick},
+}
+\newcommand{\fn}[1]{\tikz[baseline=(n.base)]\node[num] (n) {#1};}
+
+\begin{document}
+\begin{tikzpicture}[font=\small]
+
+% ── The six containers ────────────────────────────────────────────────────────
+\node[ctr] (P) at (3.5,0)
+  {\textbf{proxy}\\[-1pt]\sub{Caddy 2.10 · basic auth}\\[-1pt]\listens{80}};
+\node[ctr] (W) at (9.0,0)
+  {\textbf{web}\\[-1pt]\sub{Flask dashboard}\\[-1pt]\listens{5000}};
+\node[ctr] (Q) at (15.2,0)
+  {\textbf{mosquitto}\\[-1pt]\sub{2.0 · ACL · no anonymous}\\[-1pt]\listens{1883}};
+\node[ctr] (G) at (21.2,0)
+  {\textbf{gateway-receiver}\\[-1pt]\sub{non-root · group dialout}\\[-1pt]\unpublished};
+\node[ctr] (I) at (9.8,-3.3)
+  {\textbf{influxdb}\\[-1pt]\sub{1.11 · auth on}\\[-1pt]\listens{8086}};
+\node[ctr] (T) at (14.6,-3.3)
+  {\textbf{telegraf}\\[-1pt]\sub{1.32}\\[-1pt]\unpublished};
+
+\node[note, text=mtdark!80, align=right, anchor=east] at (7.3,0 |- I)
+  {\textbf{InfluxDB measurements}\\telemetry · pbx\_message · pdr};
+\node[note, text=mtgreen7, align=left, anchor=west] (topics) at ($(T.east)+(0.9,0)$)
+  {\textbf{MQTT topics}\\\pfx/\textless node\_label\textgreater/\\
+   \{position, device, environment,\\\hphantom{\{}message, pdr\}};
+
+% the compose network
+\begin{scope}[on background layer]
+  \node[zone, draw=mtdark!55, dashed, fill=white, fit={(P)(G)(I)(T)($(G.north)+(0,0.55)$)},
+        inner sep=5mm] (C) {};
+\end{scope}
+\node[note, anchor=north east, align=right, text=mtdark] at ($(C.north east)+(-0.25,-0.12)$)
+  {\textbf{Docker Compose network}\\containers reach each other by service name};
+
+% ── The host's loopback: every published port but one ─────────────────────────
+\node[fit={($(C.south west)+(0,-0.75)$) ($(Q.south)+(2.6,-6.0)$)}, inner sep=0pt,
+      draw=mtdark!50, fill=mtdark!12, rounded corners=3pt] (L) {};
+\node[note, anchor=west, align=left, text=mtdark] at ($(L.west)+(0.2,0)$)
+  {\textbf{host loopback}\\127.0.0.1};
+\node[sock] (s5000) at (L.center -| 7.8,0)  {:5000};
+\node[sock] (s8086) at (L.center -| I.south) {:8086};
+\node[sock] (s1883) at (L.center -| 16.6,0) {:1883};
+\draw[publish] (W.south -| s5000) -- (s5000.north);
+\draw[publish] (I.south) -- (s8086.north);
+\draw[publish] (Q.south -| s1883) -- (s1883.north);
+\node[note, anchor=north west, align=left, text=mtdark!75] at ($(L.south west)+(0.2,-0.15)$)
+  {reachable from the host itself only\\(tools, debugging), never from the network};
+
+\node[gateway, fill=white, minimum width=30mm] (H8) at ($(s8086)+(0,-2.1)$)
+  {\textbf{tools/plot\_history.py}\\[-1pt]\sub{run on the host, not a container}};
+\draw[http] (H8) -- node[num, pos=0.3] {8}
+  node[pos=0.3, right=2.5mm, note] {HTTP · read-only account} (s8086);
+
+% the host
+\begin{pgfonlayer}{zones}
+  \node[zone, draw=mtdark!70, fill=mtdark!4, fit={(C)(L)(H8)($(C.north)+(0,0.75)$)},
+        inner sep=5mm] (H) {};
+\end{pgfonlayer}
+\node[anchor=north east, align=right] at ($(H.north east)+(-0.25,-0.15)$)
+  {\textbf{gateway host}\\[-1pt]\sub{Raspberry Pi / PC · Docker}};
+
+% ── Flows inside the stack ────────────────────────────────────────────────────
+\draw[mqtt] (G) -- node[num] {2} node[above=2mm, note] {MQTT · gateway} (Q);
+\draw[mqtt] (Q) -- node[num] {5} node[above=2mm, note] {MQTT · monitor}
+                                  node[below=2mm, note] {live feed} (W);
+\draw[mqtt] (Q.south -| 14.3,0) -- node[num] {3}
+  node[left=2.5mm, note] {MQTT · telegraf} (T.north -| 14.3,0);
+\draw[http] (T) -- node[num] {4} node[above=2mm, note] {HTTP}
+                                  node[below=2mm, note] {write-only} (I);
+\draw[http] (W.south -| 9.4,0) -- node[num] {6}
+  node[right=2.5mm, note] {HTTP · read-only} (I.north -| 9.4,0);
+\draw[http] (P) -- node[num] {7} node[above=2mm, note] {HTTP :5000}
+  node[below=2mm, note] {pages · /api\\Socket.IO} (W);
+
+% ── The field network and its one door ────────────────────────────────────────
+\node[sock, draw=door, very thick, text=door, font=\scriptsize\bfseries]
+  (door) at (P.north |- H.north) {0.0.0.0:80};
+\draw[publish] (door.south) -- (P.north);
+
+\node[other, minimum width=22mm] (B1) at ($(door)+(-1.7,2.4)$)
+  {\textbf{browser}\\[-1pt]\sub{operator}};
+\node[other, minimum width=22mm] (B2) at ($(door)+(1.7,2.4)$)
+  {\textbf{browser}\\[-1pt]\sub{visitors}};
+\draw[http] (B1.south) -- (door.north west);
+\draw[http] (B2.south) -- (door.north east);
+\node[num] at ($(door.north)+(0,0.55)$) {7};
+\node[note, anchor=west, align=left] at ($(B2.south east)+(0.25,-0.15)$)
+  {HTTP :80\\dashboard login};
+
+% what the network cannot reach: nothing else listens on it
+\coordinate (refused) at (s1883 |- H.north);
+\draw[->, thick, dashed, draw=door] (B2.east) -| ($(refused)+(0,0.12)$);
+\node[text=door, fill=white, inner sep=0.5pt, font=\normalsize] at (refused) {\ding{55}};
+\node[note, text=door, anchor=north east, align=right] at ($(B2.east -| refused)+(-0.25,-0.3)$)
+  {:5000 · :8086 · :1883 directly: refused,\\they listen on 127.0.0.1 only};
+
+\begin{scope}[on background layer]
+  \node[zone, draw=mtdark!45, dashed, fill=mtdark!2,
+        fit={(B1)(B2)($(refused)+(0.4,1.2)$)($(B1.north)+(0,0.55)$)}, inner sep=3mm] (F) {};
+\end{scope}
+\node[note, anchor=north west, align=left, text=mtdark] at ($(F.north west)+(0.25,-0.12)$)
+  {\textbf{field network}\\LAN, or the gateway's own WiFi (WPA2)};
+
+% ── The gateway radio ─────────────────────────────────────────────────────────
+\node[sock, draw=amber!85!black, very thick] (dev) at (22.0,0 |- H.south)
+  {/dev/serial/by-id/\ldots};
+\draw[serial, dashed] (dev.north) -- node[pos=0.4, left, note, text=amber!75!black, align=right]
+  {device passed\\through} (G.south -| dev);
+\node[radio] (R) at ($(dev)+(0,-2.2)$)
+  {\textbf{gateway radio}\\[-1pt]\radiosub{CLIENT\_MUTE}};
+\draw[serial] (R) -- node[num] {1} node[left=2.5mm, note, text=amber!75!black] {USB serial} (dev);
+\draw[air] (R.south) -- ++(0,-1.0) node[below, note, text=lorablue!80!black] {LoRa mesh};
+
+% ── Flows, accounts and what each may do ──────────────────────────────────────
+\node[anchor=north west, font=\scriptsize, inner sep=0pt] (tab) at ($(H.south west)+(0.1,-0.7)$) {%
+  \renewcommand{\arraystretch}{1.35}%
+  \begin{tabular}{@{}c l l l@{}}
+    & \textbf{from $\rightarrow$ to} & \textbf{protocol} & \textbf{account: what it may do}\\
+    \fn{1} & gateway radio $\rightarrow$ gateway-receiver & USB serial
+           & the device is passed through; the receiver's user is in group dialout\\
+    \fn{2} & gateway-receiver $\rightarrow$ mosquitto & MQTT & gateway: write \pfx/\#\\
+    \fn{3} & mosquitto $\rightarrow$ telegraf & MQTT & telegraf: read \pfx/\#\\
+    \fn{4} & telegraf $\rightarrow$ influxdb & HTTP & InfluxDB write-only account\\
+    \fn{5} & mosquitto $\rightarrow$ web (live feed) & MQTT
+           & monitor: read \pfx/+/position $|$ device $|$ environment only\\
+    \fn{6} & web $\rightarrow$ influxdb & HTTP & InfluxDB read-only account\\
+    \fn{7} & browser $\rightarrow$ proxy $\rightarrow$ web & HTTP :80 $\rightarrow$ :5000
+           & dashboard login (basic auth); pages, /api, Socket.IO\\
+    \fn{8} & tools/plot\_history.py $\rightarrow$ influxdb & HTTP 127.0.0.1:8086
+           & InfluxDB read-only account\\
+  \end{tabular}};
+
+% ── Legend ────────────────────────────────────────────────────────────────────
+\begin{scope}[shift={($(tab.south west)+(0.1,-0.55)$)}, note]
+  \draw[mqtt] (0,0) -- ++(0.9,0) node[right] {MQTT (arrow: message direction)};
+  \draw[http] (5.0,0) -- ++(0.9,0) node[right] {HTTP (arrow: request direction)};
+  \draw[serial] (10.0,0) -- ++(0.9,0) node[right] {USB serial};
+  \draw[publish] (0,-0.5) -- ++(0.9,0) node[right] {port published on the host};
+  \node[sock, draw=door, very thick, text=door, font=\scriptsize\bfseries,
+        minimum height=3mm, inner sep=1pt] at (5.45,-0.5) {:80};
+  \node[right] at (5.9,-0.5) {the only port open to the network};
+  \draw[air] (10.0,-0.5) -- ++(0.9,0) node[right] {LoRa};
+  \node[right, align=left, text=mtdark!75] at (-0.1,-1.05)
+    {Deliberately absent: TLS (offline in the field, no certificate a browser would trust;
+     the WiFi's WPA2 protects the login) and an MQTT websocket listener.};
+\end{scope}
+
+\end{tikzpicture}
+\end{document}

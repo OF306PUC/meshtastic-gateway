@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block nav_map %}active{% endblock %}
+
+{% block content %}
+<div id="map"></div>
+<div id="map-status">Fetching node positions…</div>
+
+<script>
+(function () {
+    "use strict";
+
+    // A world view until the nodes are known: the deployment decides where to look.
+    const map = L.map("map").setView([0, 0], 2);
+    const markerLayer = L.layerGroup().addTo(map);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+
+    const status = document.getElementById("map-status");
+
+    function load() {
+        fetch("/api/nodes")
+            .then(async r => {
+                const body = await r.json();
+                // A failed query is an error to show, not an empty mesh.
+                if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+                return body;
+            })
+            .then(nodes => {
+                if (!nodes.length) {
+                    status.textContent = "No surveyed positions and no GPS data yet.";
+                    return;
+                }
+                status.textContent = `${nodes.length} node(s) found — click a marker to open the live dashboard.`;
+
+                markerLayer.clearLayers();
+                const bounds = [];
+                nodes.forEach(n => {
+                    const marker = L.marker([n.lat, n.lon]).addTo(markerLayer);
+                    bounds.push([n.lat, n.lon]);
+
+                    const popup = document.createElement("div");
+                    const title = document.createElement("b");
+                    title.textContent = n.node_label || n.node_id;
+                    const id = document.createElement("small");
+                    id.textContent = n.node_id;
+                    const coords = document.createElement("span");
+                    coords.textContent = `${n.lat.toFixed(6)}, ${n.lon.toFixed(6)}`;
+                    const link = document.createElement("a");
+                    link.href = `/dashboard?node=${encodeURIComponent(n.node_id)}`;
+                    link.style.cssText = "color:#4BC0C0;font-weight:bold;";
+                    link.textContent = "Open dashboard →";
+                    popup.appendChild(title);
+                    popup.appendChild(document.createElement("br"));
+                    popup.appendChild(id);
+                    popup.appendChild(document.createElement("br"));
+                    popup.appendChild(coords);
+                    popup.appendChild(document.createElement("br"));
+                    popup.appendChild(document.createElement("br"));
+                    popup.appendChild(link);
+                    marker.bindPopup(popup);
+                    marker.on("mouseover", () => marker.openPopup());
+
+                    // Single click also navigates
+                    marker.on("click", () => {
+                        window.location.href = `/dashboard?node=${encodeURIComponent(n.node_id)}`;
+                    });
+                });
+
+                if (bounds.length > 1) map.fitBounds(bounds, { padding: [50, 50] });
+                else map.setView(bounds[0], 16);
+            })
+            .catch(e => { status.textContent = `Error loading nodes: ${e.message}`; console.error(e); });
+    }
+
+    load(); // nodes do not move: loaded once per page view
+})();
+</script>
+{% endblock %}

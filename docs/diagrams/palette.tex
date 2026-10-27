@@ -1,0 +1,52 @@
+% Shared look for the diagrams in this folder: font, palette, TikZ styles.
+% \input{palette} in the preamble of a standalone tikz document.
+%
+% Font: Times New Roman with lualatex/xelatex (TeX Gyre Termes, a Times clone,
+% where it is not installed); Times via mathptmx with pdflatex.
+%
+% Palette:
+%   Meshtastic  #2C2D3C dark, #67EA94 green; for lines and text on white,
+%               Green 600 #3FB86D and Green 700 #2D8F52
+%               (github.com/meshtastic/design).
+%   LoRa        #00AEEF "LoRa blue" (Semtech LoRa logo usage guidelines).
+%   Connector   amber, the one accent outside both palettes.
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage{mathptmx}
+\else
+  \usepackage{fontspec}
+  \IfFontExistsTF{Times New Roman}
+    {\setmainfont{Times New Roman}}
+    {\setmainfont{TeX Gyre Termes}}
+\fi
+\usetikzlibrary{positioning,arrows.meta,fit,backgrounds,calc,
+                decorations.pathmorphing,shapes.geometric}
+
+\definecolor{mtdark}{HTML}{2C2D3C}
+\definecolor{mtgreen}{HTML}{67EA94}
+\definecolor{mtgreen6}{HTML}{3FB86D}
+\definecolor{mtgreen7}{HTML}{2D8F52}
+\definecolor{lorablue}{HTML}{00AEEF}
+\definecolor{amber}{HTML}{E69500}
+
+% the second line of a radio's label, in Meshtastic green
+\newcommand{\radiosub}[1]{{\scriptsize\color{mtgreen}#1}}
+
+\tikzset{
+  >={Stealth[length=2.2mm]},
+  box/.style={draw, rounded corners=2pt, align=center, inner sep=4pt, minimum height=11mm},
+  % a Meshtastic radio: dark, green-edged, white title
+  radio/.style={box, very thick, fill=mtdark, draw=mtgreen, text=white, minimum width=28mm},
+  % what owns a box: this platform, the PBX project, the gateway
+  platform/.style={box, fill=mtgreen!16, draw=mtgreen7},
+  pbx/.style={box, fill=amber!12, draw=amber!85!black},
+  gateway/.style={box, fill=mtdark!7, draw=mtdark!70},
+  other/.style={box, fill=white, draw=mtdark!45},
+  member/.style={->, very thick, draw=mtgreen6},
+  conn/.style={<->, very thick, draw=amber},
+  dep/.style={->, thick, dashed, draw=mtdark!70},
+  air/.style={draw=lorablue, thick, decorate,
+              decoration={snake, amplitude=1.3pt, segment length=6pt}},
+  note/.style={font=\scriptsize, align=center},
+}

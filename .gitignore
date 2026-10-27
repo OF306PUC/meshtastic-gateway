@@ -1,0 +1,18 @@
+# Secrets (G9): settings, every credential, the Mosquitto password file
+.env
+secrets/
+mqtt/pwfile
+configuration.env
+.credentials.*
+
+# Python
+.venv/
+__pycache__/
+
+# Scratch
+.tmp/
+tmp/
+
+# Broker state (mounted into the mosquitto container)
+data/
+log/

@@ -1,0 +1,28 @@
+# Per-account topic permissions. mqtt/entrypoint.sh renders this file at every
+# broker start, replacing {prefix} with MQTT_TOPIC_PREFIX from .env — the same
+# value the gateway publishes under and Telegraf subscribes to (G4).
+#
+# One account per role rather than one shared secret: only the gateway writes,
+# and a leaked reader password cannot be used to inject measurements.
+#
+# Every `user` here must be an account in mqtt/init-credentials.sh, and the
+# reverse (tests/test_infrastructure.py). Apply edits: docker compose restart mosquitto
+
+# ── Publishers ───────────────────────────────────────────────────────────────
+
+# The gateway receiver owns every node's telemetry namespace.
+user gateway
+topic write {prefix}/#
+
+# ── Subscribers ──────────────────────────────────────────────────────────────
+
+# Telegraf reads everything and writes nothing.
+user telegraf
+topic read {prefix}/#
+
+# The dashboard's live feed: the telemetry it draws, nothing else. Messages
+# carry phone numbers, and the feed reaches every browser that opens the page.
+user monitor
+topic read {prefix}/+/position
+topic read {prefix}/+/device
+topic read {prefix}/+/environment

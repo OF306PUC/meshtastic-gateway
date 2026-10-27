@@ -1,0 +1,12 @@
+# The receiver's dependencies (Dockerfile). To run it and every test from a
+# clone, install the dashboard's too:
+#
+#   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r monitor/requirements.txt
+#
+# Only direct imports, pinned to the versions proven in the monorepo's gateway
+# image and the platform. meshtastic's own tree is left to the resolver: hand
+# pinning it (bleak, dbus-fast...) breaks installs where no wheel exists.
+meshtastic==2.7.8
+Pypubsub==4.0.7
+paho-mqtt==2.1.0
+pyyaml==6.0.3

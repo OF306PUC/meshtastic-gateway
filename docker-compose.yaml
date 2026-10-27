@@ -1,0 +1,138 @@
+# The gateway stack: broker, ingestion, database, the receiver, the dashboard and
+# the proxy that puts a login in front of it. Only the proxy is reachable from
+# the network; every other published port is the host's localhost only.
+#
+# Settings: .env (see .env.example) for interpolation here. Credentials:
+# secrets/<service>.env, one per container with only what it uses, created
+# together with mqtt/pwfile by mqtt/init-credentials.sh (G5). Required values
+# use ${VAR:?...}: compose refuses to start without them rather than starting
+# without data.
+#
+# ${VAR} below interpolates from .env or the shell, never from env_file; that is
+# why credentials are not named here — they reach the containers via env_file.
+
+x-topic-prefix: &topic-prefix MQTT_TOPIC_PREFIX=${MQTT_TOPIC_PREFIX:?set MQTT_TOPIC_PREFIX in .env}
+x-influxdb-db: &influxdb-db INFLUXDB_DB=${INFLUXDB_DB:?set INFLUXDB_DB in .env}
+
+# Bounded logs: the receiver logs the text of PBX messages (real people's), and
+# Docker keeps container logs on the host until they are removed.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    restart: unless-stopped
+    logging: *logging
+    # Renders the ACL for MQTT_TOPIC_PREFIX, then runs the image's entrypoint.
+    entrypoint: ["/bin/sh", "/mosquitto/config/entrypoint.sh"]
+    command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+    environment:
+      - *topic-prefix
+    volumes:
+      # Read-only: the image's entrypoint would otherwise chown the host's mqtt/ to uid 1883.
+      - ./mqtt:/mosquitto/config:ro
+      - ./data:/mosquitto/data
+      - ./log:/mosquitto/log
+    ports:
+      # Host-only: every client is on the compose network. Debug from the host
+      # with `docker compose exec mosquitto mosquitto_sub ...`.
+      - "127.0.0.1:1883:1883"
+
+  influxdb:
+    image: influxdb:1.11-alpine
+    restart: unless-stopped
+    logging: *logging
+    env_file: secrets/influxdb.env       # the admin, write and read accounts
+    environment:
+      - *influxdb-db                     # created on the first start
+      # Without it, anyone who reaches port 8086 can read, write or drop the data.
+      - INFLUXDB_HTTP_AUTH_ENABLED=true
+    ports:
+      - "127.0.0.1:8086:8086"            # host only: tools/plot_history.py
+    volumes:
+      - influxdb_data:/var/lib/influxdb
+
+  telegraf:
+    image: telegraf:1.32-alpine
+    restart: unless-stopped
+    logging: *logging
+    env_file: secrets/telegraf.env       # MQTT_*_TELEGRAF, INFLUXDB_WRITE_USER*
+    environment:
+      - *topic-prefix                    # substituted into telegraf.conf
+      - *influxdb-db
+    volumes:
+      - ./telegraf/etc/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    depends_on:
+      - influxdb
+      - mosquitto
+
+  gateway-receiver:
+    build: .
+    restart: unless-stopped
+    logging: *logging
+    env_file: secrets/gateway.env        # MQTT_USERNAME_GATEWAY / MQTT_PASSWORD_GATEWAY
+    environment:
+      - *topic-prefix
+      - MESH_DEPLOYMENT=${MESH_DEPLOYMENT:?set MESH_DEPLOYMENT in .env}
+      - GATEWAY_SERIAL_PORT=${GATEWAY_SERIAL_PORT:?set GATEWAY_SERIAL_PORT in .env}
+      - BROKER_ADDRESS=mosquitto         # reach Mosquitto by service name
+      - BROKER_PORT=1883
+      - CLIENT_ID=${CLIENT_ID:-}
+      - PDR_WINDOW_SEC=${PDR_WINDOW_SEC:-}
+      - PDR_WINDOW_SEC_DEVICE=${PDR_WINDOW_SEC_DEVICE:-}
+      - PDR_WINDOW_SEC_ENVIRONMENT=${PDR_WINDOW_SEC_ENVIRONMENT:-}
+      - PDR_WINDOW_SEC_POSITION=${PDR_WINDOW_SEC_POSITION:-}
+      - PDR_SWEEP_INTERVAL_SEC=${PDR_SWEEP_INTERVAL_SEC:-}
+    devices:
+      - "${GATEWAY_SERIAL_PORT}:${GATEWAY_SERIAL_PORT}"
+    volumes:
+      # Mounted, not baked: editing a deployment needs a restart, not a rebuild.
+      - ./deployments:/app/deployments:ro
+    depends_on:
+      - mosquitto
+
+  web:
+    build:
+      context: .                         # the root, so the gateway package is copied too
+      dockerfile: monitor/Dockerfile
+    restart: unless-stopped
+    logging: *logging
+    env_file: secrets/web.env            # MQTT_*_MONITOR, INFLUXDB_READ_USER*
+    environment:
+      - *topic-prefix                    # live feed: <prefix>/+/{position,device,environment}
+      - *influxdb-db
+      - MESH_DEPLOYMENT=${MESH_DEPLOYMENT:?set MESH_DEPLOYMENT in .env}
+      - DB_HOST=influxdb
+      - DB_PORT=8086
+      - BROKER_ADDRESS=mosquitto
+      - BROKER_PORT=1883
+      # Unset = same origin only, whatever name the browser used to reach the proxy.
+      - MONITOR_ALLOWED_ORIGINS=${MONITOR_ALLOWED_ORIGINS:-}
+    volumes:
+      - ./deployments:/app/deployments:ro   # surveyed positions for the map
+    ports:
+      - "127.0.0.1:5000:5000"            # host only; from the network, through the proxy
+    depends_on:
+      - influxdb
+      - mosquitto
+
+  proxy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    logging: *logging
+    env_file: secrets/proxy.env          # DASHBOARD_USER / DASHBOARD_PASSWORD_HASH
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    ports:
+      - "${DASHBOARD_PORT:-80}:80"       # the only port open to the network
+    depends_on:
+      - web
+
+volumes:
+  influxdb_data: {}
+  caddy_data: {}

@@ -1,0 +1,9 @@
+# An allowlist: only what the image copies is sent to the daemon. This keeps
+# .venv out of the build and .env, secrets/ and mqtt/pwfile out of it
+# entirely (G9).
+*
+!requirements.txt
+!gateway/
+!main.py
+!monitor/
+**/__pycache__
