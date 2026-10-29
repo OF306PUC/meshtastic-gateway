@@ -1,4 +1,4 @@
-# tools/plot_history.py and tools/bathymetry.py, run on a host (not in a container):
+# tools/plot_history.py and tools/relief.py, run on a host (not in a container):
 #   .venv/bin/pip install -r requirements.txt -r tools/requirements.txt
 # Ranges as in meshtastic-platform's analysis tools.
 matplotlib>=3.6

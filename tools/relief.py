@@ -1,19 +1,20 @@
 """
-bathymetry.py  –  depth contours for the dashboard's offline map
-================================================================
-Fetches a depth grid for one or more boxes and writes its contour lines as
-GeoJSON, which the map draws over the basemap without internet:
+relief.py  –  elevation and depth contours for the dashboard's offline map
+=========================================================================
+Fetches a terrain grid for one or more boxes and writes its contour lines, land
+and sea, as GeoJSON, which the map draws over the basemap without internet:
 
-    python -m tools.bathymetry --bbox -27.50 -109.80 -26.80 -108.90 \\
-        --out monitor/static/maps/bathymetry.geojson
+    python -m tools.relief --bbox -27.31 -109.56 -26.95 -109.11 \\
+        --out monitor/static/maps/relief.geojson
 
 A box is SOUTH WEST NORTH EAST in decimal degrees. monitor/static/maps/fetch.sh
 runs this with the field sites' boxes.
 
 The grid is GEBCO_2020 (15 arc-seconds, about 450 m), cut out by NOAA's ERDDAP
-server. At that spacing a line near the coast is approximate: the contours are
-for reading the sea floor around a site, not for navigation, as GEBCO says of
-its own grid.
+server: one grid for land and sea, elevation positive up. At that spacing a
+line is approximate, and peaks come out a few tens of metres low: the contours
+are for reading the terrain around a site, not for navigation or surveying,
+as GEBCO says of its own grid. The coastline itself is the basemap's.
 """
 
 import argparse
@@ -28,11 +29,14 @@ import requests
 
 ERDDAP = "https://coastwatch.pfeg.noaa.gov/erddap/griddap/GEBCO_2020.csv"
 SOURCE = "GEBCO Compilation Group (2020) GEBCO 2020 Grid, via NOAA ERDDAP"
-LEVELS_M = (100, 200, 500, 1000, 1500, 2000, 2500, 3000)   # depths, positive down
+# Metres, positive above sea level. Land every 50 m up to Rapa Nui's summits
+# (Terevaka, 507 m), then wider; the sea down to 2000 m, where the island's
+# slopes meet the ocean floor.
+LEVELS_M = (-2000, -1500, -1000, -500, -200, -100, 50, 100, 150, 200, 300, 400, 500)
 HEADER = "latitude,longitude,elevation"
 
 
-class BathymetryError(Exception):
+class ReliefError(Exception):
     pass
 
 
@@ -42,9 +46,9 @@ def fetch_csv(south: float, west: float, north: float, east: float, *, get=reque
     try:
         r = get(url, timeout=120)
     except requests.RequestException as exc:
-        raise BathymetryError(f"{url}: {exc}") from exc
+        raise ReliefError(f"{url}: {exc}") from exc
     if r.status_code != 200:
-        raise BathymetryError(f"{url}: HTTP {r.status_code}: {r.text[:200].strip()}")
+        raise ReliefError(f"{url}: HTTP {r.status_code}: {r.text[:200].strip()}")
     return r.text
 
 
@@ -55,19 +59,19 @@ def parse_csv(text: str):
     """
     lines = text.strip().splitlines()
     if not lines or lines[0].strip() != HEADER:
-        raise BathymetryError(f"not an ERDDAP elevation grid: starts {lines[:1]!r}")
+        raise ReliefError(f"not an ERDDAP elevation grid: starts {lines[:1]!r}")
     rows = lines[2:]
     if not rows:
-        raise BathymetryError("the server returned no grid cells")
+        raise ReliefError("the server returned no grid cells")
     cells = np.array([[float(v) for v in row.split(",")] for row in rows])
     lats, lons = np.unique(cells[:, 0]), np.unique(cells[:, 1])
     if len(lats) * len(lons) != len(cells):
-        raise BathymetryError(f"not a full grid: {len(cells)} cells for "
-                              f"{len(lats)} x {len(lons)}")
+        raise ReliefError(f"not a full grid: {len(cells)} cells for "
+                          f"{len(lats)} x {len(lons)}")
     z = np.full((len(lats), len(lons)), np.nan)
     z[np.searchsorted(lats, cells[:, 0]), np.searchsorted(lons, cells[:, 1])] = cells[:, 2]
     if np.isnan(z).any():
-        raise BathymetryError(f"{int(np.isnan(z).sum())} cells without a depth")
+        raise ReliefError(f"{int(np.isnan(z).sum())} cells without an elevation")
     return lats, lons, z
 
 
@@ -75,10 +79,10 @@ def contours(lats, lons, z, levels_m=LEVELS_M) -> list[dict]:
     """One GeoJSON LineString per contour line, coordinates [lon, lat]."""
     gen = contourpy.contour_generator(lons, lats, z, line_type=contourpy.LineType.Separate)
     return [{"type": "Feature",
-             "properties": {"depth_m": depth},
+             "properties": {"elevation_m": level},
              "geometry": {"type": "LineString", "coordinates": np.round(line, 5).tolist()}}
-            for depth in levels_m
-            for line in gen.lines(-depth)
+            for level in levels_m
+            for line in gen.lines(level)
             if len(line) >= 2]
 
 
@@ -97,13 +101,13 @@ def main(argv=None, *, get=requests.get) -> int:
             sys.exit(f"bbox {box}: expected SOUTH WEST NORTH EAST")
         try:
             lats, lons, z = parse_csv(fetch_csv(south, west, north, east, get=get))
-        except BathymetryError as exc:
+        except ReliefError as exc:
             sys.exit(f"bbox {box}: {exc}")
         found = contours(lats, lons, z)
         if not found:
-            sys.exit(f"bbox {box}: no depth reaches {LEVELS_M[0]} m — is the box at sea?")
-        deepest = int(-z.min())
-        print(f"bbox {box}: {len(lats)} x {len(lons)} cells, deepest {deepest} m, "
+            sys.exit(f"bbox {box}: no contour level crossed between "
+                     f"{z.min():.0f} and {z.max():.0f} m")
+        print(f"bbox {box}: {len(lats)} x {len(lons)} cells, {z.min():.0f} to {z.max():.0f} m, "
               f"{len(found)} lines")
         features += found
 

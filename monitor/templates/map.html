@@ -7,17 +7,19 @@
 
 {% block content %}
 <div id="map"></div>
-<div id="map-status"><span id="nodes-status">Fetching node positions…</span><span id="depth-status"></span></div>
+<div id="map-status"><span id="nodes-status">Fetching node positions…</span><span id="relief-status"></span></div>
 
 <script>
 (function () {
     "use strict";
 
-    // A world view until the nodes are known: the deployment decides where to look.
-    const map = L.map("map", { maxZoom: 18 }).setView([0, 0], 2);
+    // Rapa Nui, the field site: the map opens on it, and stays there until the
+    // nodes say where to look. No world view: the basemap holds only its boxes.
+    const HOME = [[-27.21, -109.46], [-27.05, -109.21]];
+    const map = L.map("map", { minZoom: 9, maxZoom: 18 }).fitBounds(HOME);
     const markerLayer = L.layerGroup().addTo(map);
 
-    // Basemap and depth contours come from static/maps (see its fetch.sh), so the
+    // Basemap and relief contours come from static/maps (see its fetch.sh), so the
     // map works without internet. Outside the boxes cut out there it is blank.
     protomapsL.leafletLayer({
         url: "/static/maps/basemap.pmtiles",
@@ -26,33 +28,38 @@
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://protomaps.com">Protomaps</a>'
     }).addTo(map);
 
-    const depthLayer = L.layerGroup().addTo(map);
-    L.control.layers(null, { "Depth contours": depthLayer }).addTo(map);
-    const depthStatus = document.getElementById("depth-status");
+    const reliefLayer = L.layerGroup().addTo(map);
+    L.control.layers(null, { "Elevation and depth": reliefLayer }).addTo(map);
+    const reliefStatus = document.getElementById("relief-status");
 
-    // Deeper is darker: 100 m pale cyan to 3000 m deep blue.
-    function depthColour(m) {
-        const t = Math.min(Math.log(m / 100) / Math.log(30), 1);
-        return `hsl(200, 80%, ${78 - 40 * t}%)`;
+    // Land in earth tones, lighter going up; sea in blues, darker going down.
+    function reliefColour(m) {
+        if (m > 0) return `hsl(35, 55%, ${40 + 35 * Math.min(m / 500, 1)}%)`;
+        const t = Math.min(Math.log(-m / 100) / Math.log(20), 1);
+        return `hsl(200, 80%, ${75 - 40 * t}%)`;
     }
 
-    fetch("/static/maps/bathymetry.geojson")
+    fetch("/static/maps/relief.geojson")
         .then(r => {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             return r.json();
         })
         .then(data => {
             L.geoJSON(data, {
-                style: f => ({ color: depthColour(f.properties.depth_m), weight: 1.2, opacity: 0.9 }),
-                onEachFeature: (f, line) => line.bindTooltip(`${f.properties.depth_m} m deep`, { sticky: true })
-            }).addTo(depthLayer);
-            map.attributionControl.addAttribution("Depths: GEBCO 2020");
+                style: f => ({ color: reliefColour(f.properties.elevation_m), weight: 1.2, opacity: 0.9 }),
+                onEachFeature: (f, line) => {
+                    const m = f.properties.elevation_m;
+                    line.bindTooltip(m > 0 ? `${m} m above sea level` : `${-m} m deep`, { sticky: true });
+                }
+            }).addTo(reliefLayer);
+            map.attributionControl.addAttribution("Relief: GEBCO 2020");
         })
-        .catch(e => { depthStatus.textContent = `Depth contours unavailable: ${e.message}`; console.error(e); });
+        .catch(e => { reliefStatus.textContent = `Relief contours unavailable: ${e.message}`; console.error(e); });
 
     const status = document.getElementById("nodes-status");
-    const PLANNED_STYLE = { radius: 9, color: "#e0b050", weight: 2, dashArray: "4 3",
-                            fillColor: "#e0b050", fillOpacity: 0.2 };
+    // Pink: apart from the earth tones of the land contours and the blues of the sea.
+    const PLANNED_STYLE = { radius: 9, color: "#ff5fa2", weight: 2, dashArray: "4 3",
+                            fillColor: "#ff5fa2", fillOpacity: 0.25 };
 
     function load() {
         fetch("/api/nodes")
@@ -64,7 +71,7 @@
             })
             .then(nodes => {
                 if (!nodes.length) {
-                    status.textContent = "No surveyed positions and no GPS data yet.";
+                    status.textContent = "No node has a position yet: none surveyed, planned or reported over GPS.";
                     return;
                 }
                 const planned = nodes.filter(n => n.source === "planned").length;

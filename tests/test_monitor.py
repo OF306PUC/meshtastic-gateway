@@ -167,7 +167,7 @@ class TestOfflineAssets(MonitorCase):
         page = client.get("/map").data.decode()
         refs = re.findall(r'(?:url:|fetch\()\s*"([^"]+)"', page)
         self.assertIn("/static/maps/basemap.pmtiles", refs)
-        self.assertIn("/static/maps/bathymetry.geojson", refs)
+        self.assertIn("/static/maps/relief.geojson", refs)
         for ref in refs:
             self.assertTrue(ref.startswith("/"), ref)
             r = client.get(ref)
@@ -176,7 +176,7 @@ class TestOfflineAssets(MonitorCase):
 
     def test_map_data_is_served_in_ranges(self):
         # The basemap is one file the browser reads piece by piece (HTTP Range).
-        r = self.client(_DB()).get("/static/maps/bathymetry.geojson",
+        r = self.client(_DB()).get("/static/maps/relief.geojson",
                                    headers={"Range": "bytes=0-99"})
         self.assertEqual(r.status_code, 206)
         self.assertEqual(len(r.data), 100)

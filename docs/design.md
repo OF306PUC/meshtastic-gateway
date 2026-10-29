@@ -257,6 +257,8 @@ for flow in decoded.flows:                      # 'device' | 'environment' | 'po
   it hears) and does not provision PBX radios.
 - **The offline map covers two boxes** (2026-10-29): San Joaquín and Rapa Nui,
   cut into `monitor/static/maps/` by its `fetch.sh` (an OpenStreetMap basemap
-  from Protomaps; GEBCO 2020 depth contours around Rapa Nui). Elsewhere the map
-  is blank, markers still placed: a new site means a new box in `fetch.sh` and
-  a re-run. GEBCO's 450 m grid makes the contours near the coast approximate.
+  from Protomaps; GEBCO 2020 elevation and depth contours within some 10 km of
+  Rapa Nui). It opens on Rapa Nui until the nodes say where to look, and never
+  zooms out to the world, where it would be blank. A new site means a new box
+  in `fetch.sh` and a re-run. GEBCO's 450 m grid makes every contour
+  approximate: at street zoom the land lines are visibly coarse.

@@ -6,7 +6,7 @@
 # byte-identical; the SHA-256 of every file goes into SHA256SUMS.
 #
 # Update: change a version below, run ./fetch.sh, commit the result.
-# The map's data (basemap, depth contours) is not here: see ../maps/fetch.sh.
+# The map's data (basemap, relief contours) is not here: see ../maps/fetch.sh.
 
 set -euo pipefail
 cd "$(dirname "$0")"

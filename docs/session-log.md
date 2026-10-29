@@ -76,6 +76,13 @@ carpeta `sasipa`.
 - Dashboard: uptime como tiempo de vida en HH:MM:SS (valor en vivo, eje y
   tooltip), con marcas del eje en pasos redondos (minutos, horas, 3/6/12/24 h).
   Probado en Chrome headless con una serie sintética con un reinicio.
+- Mapa, tras verlo en pi7 (abría en la vista del mundo: `office-bench` no tiene
+  posiciones): abre en Rapa Nui (`HOME`, `minZoom: 9`); `tools/bathymetry.py` →
+  `tools/relief.py`, curvas de elevación (50–500 m) y de profundidad
+  (100–2000 m) de GEBCO en una caja de ~10 km alrededor de la isla
+  (`relief.geojson`, 49 líneas, 68 KiB); tierra en tonos tierra, mar en azules;
+  marcadores planificados en rosa. `fetch.sh` ejecutado con el `pmtiles` que
+  instaló el usuario. 253/253 tests.
 - pi7: los tres SenseCAP de `office-bench` callados desde el 10-28 ~14:26, con
   74–92 % de batería y el mismo uptime (18703 s): se apagaron juntos.
 - Gateway: copia idéntica en `deployments/sasipa/rapa-nui.yaml` (sha
@@ -115,7 +122,10 @@ carpeta `sasipa`.
   ejecutar el binario `pmtiles` (go-pmtiles). El usuario decide cómo seguir.
 - MAC de N1–N3 (no están en `san-joaquin.yaml`) y firmware de N1–N6: se leen
   con `configure.py inspect`.
-- `tx_power_dbm: 30` en N1–N6: el archivo no valida hasta corregirlo.
+- `tx_power_dbm: 30` en N1–N6: el archivo no valida hasta corregirlo (el
+  usuario lo leyó en los nodos del campus: es la configuración, el SX1262 emite
+  como máximo 22).
+- Elevación en tierra más fina que GEBCO (SRTM 30 m), si el demo lo pide.
 - Completar `access` en la plataforma (plan, plantilla, tests) con permiso.
 
 ---

@@ -62,7 +62,7 @@ main { height: calc(100vh - 46px); overflow: hidden; }
     border-top: 1px solid #1e3040;
 }
 
-#depth-status { margin-left: auto; color: #e08a5a; }
+#relief-status { margin-left: auto; color: #e08a5a; }
 
 /* ── Leaflet popup ── */
 .leaflet-popup-content-wrapper {
