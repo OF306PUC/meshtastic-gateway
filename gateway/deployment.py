@@ -5,8 +5,9 @@ Same file format as meshtastic-platform's deployments/, read independently
 is strict about the fields it reads and ignores the rest. Its semantics match
 the platform's: a node publishes under `label`, or `ref` when there is none; a
 flow absent from `intervals` is one the node does not emit; cadences are
-divided by meta.cadence_scale; site.surveyed (for the dashboard's map) is
-all-null until measured, and never confused with site.planned. `sha256` is the
+divided by meta.cadence_scale; site.surveyed and site.planned (for the
+dashboard's map) are all-null until filled in, and never confused: planned is
+where a node should go, surveyed where it was measured on site. `sha256` is the
 hash of the file's bytes, the same one the platform records, so the two copies
 can be compared (G10).
 """
@@ -24,7 +25,7 @@ import yaml
 from gateway.decode import FLOW_KINDS
 
 __all__ = ["ENV_DEPLOYMENT", "ENV_DEPLOYMENTS_DIR", "Deployment", "DeploymentError",
-           "Node", "Surveyed", "deployments_dir", "load", "parse"]
+           "Node", "Position", "deployments_dir", "load", "parse"]
 
 ENV_DEPLOYMENT = "MESH_DEPLOYMENT"
 ENV_DEPLOYMENTS_DIR = "MESH_DEPLOYMENTS_DIR"
@@ -38,8 +39,8 @@ class DeploymentError(Exception):
 
 
 @dataclass(frozen=True)
-class Surveyed:
-    """A position measured on site. A record only: never written to a radio."""
+class Position:
+    """A point from the file, planned or surveyed. A record only: never written to a radio."""
     lat: float
     lon: float
     alt_m: float | None
@@ -52,7 +53,8 @@ class Node:
     function: str
     node_id: str | None
     intervals: Mapping[str, int]       # EFFECTIVE cadences, cadence_scale applied
-    surveyed: Surveyed | None = None   # site.surveyed; site.planned is never read
+    surveyed: Position | None = None   # site.surveyed: measured on site
+    planned: Position | None = None    # site.planned: chosen at a desk, not a measurement
 
 
 @dataclass(frozen=True)
@@ -87,7 +89,7 @@ def _resolve(ref: str | None, environ: Mapping[str, str]) -> Path:
 
 
 def load(ref: str | None = None, environ: Mapping[str, str] = os.environ) -> Deployment:
-    """A deployment by name (a file in deployments/) or by YAML path."""
+    """A deployment by name (deployments/<name>.yaml, or <folder>/<name>) or by YAML path."""
     path = _resolve(ref, environ)
     blob = path.read_bytes()
     try:
@@ -161,14 +163,15 @@ def _node(raw: Any, where: str, scale: int, problems: list[str]) -> Node | None:
         site = None
     return Node(ref=ref, name=label or ref, function=function or "", node_id=node_id,
                 intervals=_intervals(raw.get("intervals"), f"{where}.intervals", scale, problems),
-                surveyed=_surveyed((site or {}).get("surveyed"), f"{where}.site.surveyed", problems))
+                surveyed=_position((site or {}).get("surveyed"), f"{where}.site.surveyed", problems),
+                planned=_position((site or {}).get("planned"), f"{where}.site.planned", problems))
 
 
 def _number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _surveyed(raw: Any, where: str, problems: list[str]) -> Surveyed | None:
+def _position(raw: Any, where: str, problems: list[str]) -> Position | None:
     if raw is None:
         return None
     if not isinstance(raw, dict):
@@ -187,7 +190,7 @@ def _surveyed(raw: Any, where: str, problems: list[str]) -> Surveyed | None:
             problems.append(f"{where}.{key}: out of range: {value!r}")
             ok = False
         elif value == 0:
-            problems.append(f"{where}.{key}: is 0 — looks unset, not surveyed")
+            problems.append(f"{where}.{key}: is 0 — looks unset")
             ok = False
     alt = raw.get("alt_m")
     if alt is not None and not _number(alt):
@@ -195,7 +198,7 @@ def _surveyed(raw: Any, where: str, problems: list[str]) -> Surveyed | None:
         ok = False
     if not ok:
         return None
-    return Surveyed(float(raw["lat"]), float(raw["lon"]), float(alt) if alt is not None else None)
+    return Position(float(raw["lat"]), float(raw["lon"]), float(alt) if alt is not None else None)
 
 
 def _intervals(raw: Any, where: str, scale: int, problems: list[str]) -> dict[str, int]:

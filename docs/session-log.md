@@ -20,6 +20,157 @@ Entry format:
 
 ---
 
+## 2026-10-29 — Punto de acceso en terreno, mapa offline y sitios de SASIPA
+**Time:** 13:00–14:00 (aprox)
+**User request:** red local en terreno (RaspAP o hotspot propio); guía paso a
+paso para activar el punto de acceso y volver a la oficina; mapa offline de San
+Joaquín e Isla de Pascua con batimetría. Después: los sitios de SASIPA ya están
+en `meshtastic-platform/deployments/sasipa/` (Google Earth, o sea planificados);
+editar el deployment de la plataforma (autorizado) y dejar la copia en una
+carpeta `sasipa`.
+
+### Actions taken
+- pi7 revisada: NetworkManager 1.42.4, país `CL`, llega a la oficina solo por
+  WiFi (`preconfigured`, SSID `oficina_v2`; `eth0` sin cable), sin RTC
+  (chrony + fake-hwclock), contenedores `restart: unless-stopped`.
+- `docs/field-hotspot.md` (enlazado desde el README): perfil `terreno-ap` de
+  NetworkManager en modo AP con `ipv4.method shared` (10.42.0.1), prueba en la
+  oficina, modo terreno por prioridad de autoconexión, hora de la Pi desde la
+  laptop, regreso a la oficina. No se aplicó nada en pi7.
+- `tools/bathymetry.py` (+ `tests/test_bathymetry.py`, 7 tests): grilla
+  GEBCO_2020 recortada por el ERDDAP de NOAA → curvas de 100–3000 m en GeoJSON
+  con `contourpy` (agregado a `tools/requirements.txt`). Rapa Nui: 169 × 217
+  celdas, 94 líneas, 145 KiB. Una caja sin mar falla con mensaje.
+- `monitor/static/vendor/fetch.sh`: protomaps-leaflet 5.1.0 y las licencias de
+  lo que trae empaquetado; el script ahora entiende paquetes con scope
+  (`@mapbox/...`). Los archivos que ya estaban no cambiaron (mismos hashes).
+- `monitor/static/maps/fetch.sh` (nuevo): extracto `pmtiles` del build
+  Protomaps 20261029 para las dos cajas (MultiPolygon, maxzoom 15) +
+  batimetría + `SHA256SUMS`.
+- `map.html`: mapa base offline (`flavor: dark`, nombres en español), capa de
+  curvas con tooltip de profundidad y control para ocultarla; si faltan, lo
+  dice en la barra de estado. Ya no se pide nada a openstreetmap.org.
+- `tests/test_monitor.py`: la página del mapa lee sus datos de este servidor,
+  los sirve por rangos (206) y coinciden con `SHA256SUMS`.
+- Plataforma (autorizado): `deployments/rapa-nui.yaml` con `site.planned` para
+  N1–N5 y GW desde `deployments/sasipa/sitios_sasipa.json` (lat, lon, alt_m y su
+  fuente); N6 toma el punto del GW (el usuario: N6 es el relay hacia la LILYGO
+  de las oficinas de SASIPA); cabecera actualizada. `configure.py validate -d rapa-nui` ✓ (solo
+  advertencias de lo que falta medir); `test_registry` + `test_hard_rules` OK.
+- Plataforma: IDs de N1–N3 (`!0b64122b`, `!7c70da02`, `!32fe0d4e`: los N1–N3
+  de San Joaquín) y `hop_limit: 3` en N1–N6, según el usuario. N4–N6: primero
+  llegaron con los IDs de N1–N3 (V1 exige únicos); corregidos por el usuario a
+  los tres SenseCAP de `office-bench` (`!886217f0`, `!99546767`, `!403192d7`),
+  con sus MAC. `validate` ✓.
+- Plataforma, a pedido: R1/R2 → D1/D2 con `function: access` (nodos para
+  acceder a la malla desde un teléfono o PC; siguen CLIENT_MUTE, posición cada
+  900 s); MAC de N1 y N2; se quitó la mención al receptor del estudio de canal
+  en N6. `access` se agregó a `FUNCTIONS` en `registry/model.py`. El resto del
+  cambio de código en la plataforma (GPS explícito en `provision/plan.py`,
+  plantilla, tests) lo bloqueó el clasificador de permisos: queda pendiente.
+- Plataforma, hecho por otra mano durante la sesión: `deployments/sasipa/` pasó
+  a `deployments/sasipa-info/` (el yaml ya apunta ahí), y `tx_power_dbm` de
+  N1–N6 pasó de 22 a 30. Con 30, `validate` falla (V2: el SX1262 llega a 22 dBm
+  y se supera el tope EIRP de SUBTEL) y también `test_every_deployment_validates`.
+  No se revirtió: lo decide el usuario.
+- Dashboard: uptime como tiempo de vida en HH:MM:SS (valor en vivo, eje y
+  tooltip), con marcas del eje en pasos redondos (minutos, horas, 3/6/12/24 h).
+  Probado en Chrome headless con una serie sintética con un reinicio.
+- pi7: los tres SenseCAP de `office-bench` callados desde el 10-28 ~14:26, con
+  74–92 % de batería y el mismo uptime (18703 s): se apagaron juntos.
+- Gateway: copia idéntica en `deployments/sasipa/rapa-nui.yaml` (sha
+  `b389bb13…`), seleccionable con `MESH_DEPLOYMENT=sasipa/rapa-nui` sin cambiar
+  código; documentado en `deployments/README.md` y `.env.example`.
+- `gateway/deployment.py`: `Surveyed` → `Position`; `Node.planned` se lee
+  aparte de `Node.surveyed`, con las mismas reglas. `/api/nodes`: medido >
+  GPS > planificado (`source: "planned"`, `node_id` puede ser null). El mapa
+  dibuja lo planificado como círculo ámbar punteado, sin enlace al dashboard
+  si no hay `node_id`. Nodos en el mismo punto comparten un marcador cuyo
+  popup los lista a todos (N6 y GW), en vez de taparse.
+- Tests: posiciones planificadas (fixture), carpeta/nombre, y que cada
+  deployment del repo carga.
+
+### Decisions
+- Hotspot propio con NetworkManager, no RaspAP: RaspAP no soporta 32 bits con
+  escritorio, pide sistema limpio, ocupa el puerto 80 (lighttpd) y suma dhcpcd
+  sobre NetworkManager.
+- Mapa base vectorial (PMTiles de Protomaps), no teselas raster: los servidores
+  de teselas de OSM prohíben la descarga masiva.
+- Lo planificado se muestra, pero nunca como medido: el mapa lo usa solo cuando
+  no hay ni posición medida ni GPS, y lo dibuja distinto.
+- La copia de la plataforma sigue en `deployments/rapa-nui.yaml`: su `-d`,
+  `validate --all` y la regla de nombres de `test_hard_rules` solo leen
+  `deployments/*.yaml`. Moverla a `sasipa/` exige cambiar ese código.
+
+### Outcomes
+- Prueba local con Chrome headless, la página real con una base de datos falsa
+  y los sitios candidatos del anexo B.1 como marcadores provisorios (copia en
+  el scratchpad, no en el repo): mapa base, curvas y marcadores correctos.
+- Con el archivo real: 7 nodos planificados en 6 marcadores; el de las
+  oficinas de SASIPA lista N6 y GW (comprobado con Chrome headless).
+- 251/253 tests: los 2 que fallan esperan `basemap.pmtiles`.
+
+### Next steps / open questions
+- Falta `basemap.pmtiles`: el clasificador de permisos bloqueó descargar y
+  ejecutar el binario `pmtiles` (go-pmtiles). El usuario decide cómo seguir.
+- MAC de N1–N3 (no están en `san-joaquin.yaml`) y firmware de N1–N6: se leen
+  con `configure.py inspect`.
+- `tx_power_dbm: 30` en N1–N6: el archivo no valida hasta corregirlo.
+- Completar `access` en la plataforma (plan, plantilla, tests) con permiso.
+
+---
+
+## 2026-10-28 — Contraseña del dashboard en pi7
+**Time:** 15:40–15:50 (aprox)
+**User request:** dónde están las credenciales del dashboard; cambiar la
+contraseña generada por una fácil de recordar, elegida por el usuario.
+
+### Actions taken
+- pi7: hash nuevo con `caddy hash-password`, escrito entre comillas simples en
+  `secrets/proxy.env` (sigue 0600); `docker compose up -d --force-recreate proxy`.
+  La receta se probó antes en local (Compose no interpola el hash, Caddy acepta
+  la contraseña).
+
+### Decisions
+- La contraseña no se escribe en el repo: está en poder del usuario. En pi7 solo
+  queda su hash.
+
+### Outcomes
+- `http://10.6.5.7/`: sin credenciales 401; usuario `dashboard` con la
+  contraseña nueva 200; la generada por `init-credentials.sh` ya no entra (401).
+
+### Next steps / open questions
+- Antes de la demo con SASIPA, si la red es compartida, poner una contraseña
+  larga (misma receta, `docs/troubleshooting.md`, "The dashboard login").
+
+---
+
+## 2026-10-28 — Banco de la oficina midiendo bien en pi7
+**Time:** 09:15–09:25 (aprox)
+**User request:** opción (a): base vacía y redespliegue con los cambios
+(commits `6239c7f` gateway y `e2e2aee` plataforma, ya publicados).
+
+### Actions taken
+- pi7: `git pull --ff-only` (sin cambios locales) → `6239c7f`; deployment sha
+  `51242653…`, N1–N3 a 60 s, `STARTUP_SETTLE_SEC = 10`.
+- `docker compose down -v` (borra datos de InfluxDB y de Caddy) y
+  `up -d --build` (4 min 20 s). Las cuentas de InfluxDB se recrearon desde
+  `secrets/`; Telegraf 3 entradas, 0 errores.
+
+### Outcomes
+- La ráfaga del arranque (relojes de nodo 125, 185, 245, 365: los SenseCAP se
+  reiniciaron al reprovisionarlos) se publicó sin puntuar; el aviso salió una
+  vez; ninguna alarma de llegada temprana.
+- Tras la ventana, en los tres nodos: un paquete cada 60,0–60,1 s,
+  `missed_est 0`, `early_count 0`, `cadence_violated 0`, PDR 1.0. Datos en la
+  base nueva, leídos por el dashboard.
+
+### Next steps / open questions
+- En InfluxDB, dos paquetes del mismo nodo en el mismo segundo (solo pasa en la
+  ráfaga de arranque) siguen pisándose: `received_at` tiene resolución de 1 s.
+
+---
+
 ## 2026-10-27 — Cadencia de 60 s y ventana de arranque
 **Time:** 17:10–17:25 (aprox)
 **User request:** la cadencia real de los SenseCAP es 60 s (el usuario la

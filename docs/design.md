@@ -255,5 +255,8 @@ for flow in decoded.flows:                      # 'device' | 'environment' | 'po
   function and configures only that radio's mesh membership; its link to the
   PBX belongs to the PBX project. The gateway keeps `pbx_message` (the frames
   it hears) and does not provision PBX radios.
-- **Later:** offline map tiles and bathymetry for the field demo (the
-  dashboard's own code already works without internet).
+- **The offline map covers two boxes** (2026-10-29): San Joaquín and Rapa Nui,
+  cut into `monitor/static/maps/` by its `fetch.sh` (an OpenStreetMap basemap
+  from Protomaps; GEBCO 2020 depth contours around Rapa Nui). Elsewhere the map
+  is blank, markers still placed: a new site means a new box in `fetch.sh` and
+  a re-run. GEBCO's 450 m grid makes the contours near the coast approximate.

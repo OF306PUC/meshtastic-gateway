@@ -81,7 +81,15 @@ class TestApiNodes(MonitorCase):
         self.assertEqual(nodes[N1], {"node_id": N1, "node_label": "node-1", "lat": -27.1127,
                                      "lon": -109.3497, "source": "surveyed",
                                      "gps_lat": -27.2, "gps_lon": -109.4})
-        self.assertEqual(nodes[P1]["source"], "gps", "P1's survey is not filled in yet")
+        self.assertEqual(nodes[P1]["source"], "gps", "no survey yet, and GPS beats planned")
+
+    def test_a_planned_site_only_when_there_is_nothing_better(self):
+        nodes = {n["node_label"]: n for n in self.client(_DB()).get("/api/nodes").json}
+        self.assertEqual(nodes["R1"], {"node_id": None, "node_label": "R1", "lat": -27.25,
+                                       "lon": -109.25, "source": "planned"})
+        self.assertEqual(nodes["P1"]["source"], "planned", "no GPS reported yet")
+        self.assertEqual(nodes["node-1"]["source"], "surveyed")
+        self.assertNotIn("GW", nodes, "no position of any kind")
 
     def test_without_a_deployment_the_map_is_gps_only(self):
         nodes = self.client(_DB(self.GPS), MESH_DEPLOYMENT="").get("/api/nodes").json
@@ -137,9 +145,10 @@ class TestPages(MonitorCase):
 
 
 class TestOfflineAssets(MonitorCase):
-    """The dashboard must work in the field, without internet (map tiles aside)."""
+    """The dashboard must work in the field, without internet, map included."""
 
-    VENDOR = Path(__file__).resolve().parents[1] / "monitor" / "static" / "vendor"
+    STATIC = Path(__file__).resolve().parents[1] / "monitor" / "static"
+    VENDOR = STATIC / "vendor"
 
     def test_pages_load_no_script_or_style_from_the_internet(self):
         client = self.client(_DB())
@@ -153,13 +162,34 @@ class TestOfflineAssets(MonitorCase):
                 self.assertEqual(r.status_code, 200, ref)
                 r.close()
 
-    def test_vendored_files_match_their_recorded_hashes(self):
-        lines = (self.VENDOR / "SHA256SUMS").read_text().splitlines()
-        self.assertGreaterEqual(len(lines), 10)
-        for line in lines:
-            digest, name = line.split(maxsplit=1)
-            self.assertEqual(hashlib.sha256((self.VENDOR / name).read_bytes()).hexdigest(),
-                             digest, name)
+    def test_the_map_reads_its_data_from_this_server(self):
+        client = self.client(_DB())
+        page = client.get("/map").data.decode()
+        refs = re.findall(r'(?:url:|fetch\()\s*"([^"]+)"', page)
+        self.assertIn("/static/maps/basemap.pmtiles", refs)
+        self.assertIn("/static/maps/bathymetry.geojson", refs)
+        for ref in refs:
+            self.assertTrue(ref.startswith("/"), ref)
+            r = client.get(ref)
+            self.assertEqual(r.status_code, 200, ref)
+            r.close()
+
+    def test_map_data_is_served_in_ranges(self):
+        # The basemap is one file the browser reads piece by piece (HTTP Range).
+        r = self.client(_DB()).get("/static/maps/bathymetry.geojson",
+                                   headers={"Range": "bytes=0-99"})
+        self.assertEqual(r.status_code, 206)
+        self.assertEqual(len(r.data), 100)
+        r.close()
+
+    def test_vendored_and_map_files_match_their_recorded_hashes(self):
+        for directory, at_least in ((self.VENDOR, 10), (self.STATIC / "maps", 2)):
+            lines = (directory / "SHA256SUMS").read_text().splitlines()
+            self.assertGreaterEqual(len(lines), at_least, directory)
+            for line in lines:
+                digest, name = line.split(maxsplit=1)
+                self.assertEqual(hashlib.sha256((directory / name).read_bytes()).hexdigest(),
+                                 digest, name)
 
 
 class TestInfluxDBConnector(unittest.TestCase):

@@ -56,6 +56,8 @@ python3 -m venv .venv
   the invariants G1–G13. Read it before changing a payload, a topic or a port.
 - [`docs/troubleshooting.md`](docs/troubleshooting.md) — by symptom; nearly
   every failure here is a silent one.
+- [`docs/field-hotspot.md`](docs/field-hotspot.md) — in the field the host
+  makes its own WiFi; switching between it and the office network.
 - [`docs/architecture/pdr-cadence-tracker.md`](docs/architecture/pdr-cadence-tracker.md)
   — how the delivery ratio is estimated (in Spanish).
 - [`docs/session-log.md`](docs/session-log.md) — what was done, when, and why.

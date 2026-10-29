@@ -25,3 +25,12 @@ The receiver prints the file's SHA-256 when it starts, and logs a WARNING (once
 each) for the drift it can see: a sender that is not in the file, a flow that
 arrives with no declared cadence, and a cadence the packets break
 (`cadence_violated`). Its periodic report counts what it discarded and why.
+
+## A client's files in their own folder
+
+A deployment can sit in a subfolder: `sasipa/rapa-nui.yaml`, selected with
+`MESH_DEPLOYMENT=sasipa/rapa-nui`. Its file name still matches its
+`meta.deployment`. The platform keeps its copy at the top of its own
+`deployments/`, where its tools look for it, so compare across the two paths:
+
+    sha256sum deployments/sasipa/rapa-nui.yaml <platform>/deployments/rapa-nui.yaml

@@ -9,15 +9,15 @@ from __future__ import annotations
 from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO
 
-from gateway.deployment import DeploymentError, Surveyed, load
+from gateway.deployment import DeploymentError, Node, load
 from monitor.param import TOTAL_SAMPLES_48HRS, Config
 from monitor.utils import ALL_FIELDS, NODE_ID_RE, DatabaseError
 
-__all__ = ["create_app", "surveyed_positions"]
+__all__ = ["create_app", "deployment_nodes"]
 
 
-def surveyed_positions(deployment: str | None, log=print) -> list[tuple[str, str, Surveyed]]:
-    """(node_id, published name, position) for each node surveyed on site.
+def deployment_nodes(deployment: str | None, log=print) -> list[Node]:
+    """The deployment's nodes, for their surveyed and planned positions.
 
     Read on every request, so an edited deployment file shows up without a
     restart. No deployment configured means GPS only; an invalid file is logged
@@ -26,11 +26,10 @@ def surveyed_positions(deployment: str | None, log=print) -> list[tuple[str, str
     if not deployment:
         return []
     try:
-        dep = load(deployment)
+        return list(load(deployment).nodes)
     except DeploymentError as exc:
         log(f"[CFG] ERROR: {exc}\n[CFG] The map shows reported GPS only until it is fixed")
         return []
-    return [(n.node_id, n.name, n.surveyed) for n in dep.nodes if n.node_id and n.surveyed]
 
 
 def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
@@ -61,20 +60,32 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
 
     @app.route("/api/nodes")
     def api_nodes():
-        """Position per node: the surveyed coordinate when there is one, else the
-        latest the node reported over GPS. `source` says which.
+        """Position per node, best first: the surveyed coordinate, else the latest
+        the node reported over GPS, else where it is planned to go. `source`
+        says which.
 
         Surveyed positions are preferred because they are measured on site and
         do not drift. They are NOT provisioned onto the radios: the node keeps
         reporting its own fix, and the difference is the GPS error — a result,
         not noise. That is why both numbers are returned instead of blended.
+        A planned position is a desk choice, shown only until there is anything
+        better; a node not provisioned yet has no node_id.
         """
         reported = {n["node_id"]: n for n in db.get_nodes_position()}
         out = []
-        for node_id, name, pos in surveyed_positions(cfg.deployment, log):
-            entry = {"node_id": node_id, "node_label": name,
-                     "lat": pos.lat, "lon": pos.lon, "source": "surveyed"}
-            gps = reported.pop(node_id, None)
+        for node in deployment_nodes(cfg.deployment, log):
+            gps = reported.pop(node.node_id, None)
+            if node.surveyed:
+                pos, source = node.surveyed, "surveyed"
+            elif gps is not None:
+                out.append({**gps, "source": "gps"})
+                continue
+            elif node.planned:
+                pos, source = node.planned, "planned"
+            else:
+                continue
+            entry = {"node_id": node.node_id, "node_label": node.name,
+                     "lat": pos.lat, "lon": pos.lon, "source": source}
             if gps is not None:
                 entry["gps_lat"], entry["gps_lon"] = gps["lat"], gps["lon"]
             out.append(entry)

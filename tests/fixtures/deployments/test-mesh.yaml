@@ -25,7 +25,7 @@ nodes:
     site:
       name: hill
       surveyed: {lat: -27.1127, lon: -109.3497, alt_m: 120.5, alt_source: gps}
-      planned: {lat: -27.0, lon: -109.0, alt_m: null, alt_source: null}   # never read
+      planned: {lat: -27.0, lon: -109.0, alt_m: null, alt_source: null}   # surveyed wins
     intervals:
       device: 120
       environment: 120
@@ -38,9 +38,10 @@ nodes:
     node_id: "!11223344"
     role: CLIENT
     hop_limit: 2
-    site:                         # the template block, not filled in yet
+    site:                         # surveyed: the template block, not filled in yet
       name: null
       surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
+      planned: {lat: -27.4, lon: -109.6, alt_m: null, alt_source: null}   # its GPS wins
     intervals:
       device: 900
     sensors: []
@@ -60,5 +61,7 @@ nodes:
     node_id: null
     role: CLIENT_MUTE
     hop_limit: 1
+    site:
+      planned: {lat: -27.25, lon: -109.25, alt_m: 40.0, alt_source: srtm}
     intervals: {}
     sensors: []

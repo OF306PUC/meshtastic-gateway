@@ -1,0 +1,347 @@
+# deployments/rapa-nui.yaml — registry for the SASIPA mesh, Rapa Nui.
+#
+# STATUS: final node positions are NOT measured yet. N1–N6 are the six SenseCAP
+# Solar Node P1 Pro of the water cluster; N6 is the centralising node (CLIENT,
+# fiberglass) that relays the cluster to GW. GW is a LILYGO T-Beam on a
+# Raspberry Pi or Jetson; D1/D2 are access nodes (a LILYGO T-Beam people reach
+# the mesh through from a phone or a PC, CLIENT_MUTE). N1–N6 and GW carry a
+# `site.planned` point from deployments/sasipa-info/sitios_sasipa.json: desk
+# coordinates from the SASIPA SHP layers in Google Earth, not a measurement.
+# N6 shares GW's point, SASIPA's offices.
+# The rest of every `site` block is an empty template, filled in on site.
+#
+# ── HOW TO FILL A NODE ON SITE ───────────────────────────────────────────────
+#  1. Flash (docs/flashing.md) and configure it:
+#       python configure.py provision -d rapa-nui --node N1 --port /dev/serial/by-id/...
+#  2. Read it back:
+#       python configure.py inspect -d rapa-nui --node N1 --port /dev/serial/by-id/...
+#     and copy what it prints into  node_id ("Node ID"), mac ("MAC") and
+#     firmware ("Firmware", X.Y.Z only).
+#  3. At the final site, fill `site`:
+#       name, asset_code     the place, and its SASIPA cadastre code (null if none)
+#       surveyed.lat / .lon  decimal degrees from a GPS read AT THE SITE (average
+#                            several fixes); south and west are negative
+#       surveyed.alt_m       metres above sea level; alt_source says where it came from
+#       antenna_height_m     antenna above ground, measured with a tape
+#       mount                how it is fixed (pole, wall, clamp...)
+#  4. Set `status: deployed` and run:
+#       python configure.py validate -d rapa-nui
+#     It refuses a deployed node with any of the above missing.
+#  Quote node_id, mac and firmware ("!0b64122b", "AA:BB:...", "2.7.26"): YAML
+#  reads an unquoted ! as a tag and 2.7 as a number.
+#
+# The surveyed position is a RECORD the analysis reads; it is NEVER written to
+# the radio. Keeping it apart from the GPS position the node reports is what
+# lets their difference be read as GPS error.
+#
+# ── Candidate sites studied in PLAN-POC-MESH-LORA-RAPANUI.md ─────────────────
+#    (annex B.1; deployments/sasipa-info/sitios_sasipa.json). N1–N5 and GW take theirs
+#    as site.planned below, and N6 takes GW's; RC and RE are possible relays,
+#    assigned to no node.
+#    Node1-Est     Estanques Rano Kau 1-2    ESRK-1     -27.16836  -109.43802
+#    Node2-Cap     Pozo N 31, Mataveri        CSUBS-31   -27.16785  -109.41890
+#    Node3-Est     Estanques Puna Pau 1-2    ESPP-2     -27.14919  -109.40899
+#    Node4-Est     Estanque La Colonia       ESLC-1     -27.12174  -109.41255
+#    Node5-Relay   (no cadastre asset)        -          -27.14116  -109.42185
+#    RC            Pozo N 25, Mataveri        CSUBS-25   -27.16441  -109.43059
+#    RE            Estanques Ara Piki 1-2    ESARA-1    -27.14940  -109.41572
+#    Gateway       Central SASIPA             -          -27.15509  -109.43608
+#
+# Inventory constraints the validator keeps regardless of where nodes go:
+#   antennas  3 fiberglass, 3 rubber (902–928 MHz) — tx_power is derived from them
+#   sensors   only 3 SenseCAP carry the SHT4X; a node without it must NOT declare
+#             an `environment` cadence (V3b)
+#   the fiberglass set must not be the sensorised set (S1)
+#   cadences  device and environment every 120 s — the dense flows the channel
+#             study measures; position every 3600 s, because these nodes are
+#             bolted to a post and their coordinate is already in `site`. Their
+#             GPS still runs (one fix an hour: `plan.GPS_UPDATE_INTERVAL_S`) so
+#             that what a node reports can be compared with its surveyed point
+#             — that difference is the only check that a node was installed
+#             where the file says it was. A gap in the position flow is only
+#             announced after 1.5 x 3600 s, by design: it is the sparse flow.
+# N6 is fiberglass (decided). The antenna and sensor of N1–N5 are PROVISIONAL:
+# confirm them when each physical unit is labelled.
+
+meta:
+  deployment: rapa-nui           # must match the file name: one name per deployment
+  kind: field
+  description: SASIPA water-network PoC, Rapa Nui — node sites to be defined
+  firmware_target: "2.7.26"      # has the 0x8B5 RX-sensitivity patch; 2.7.19 does not
+
+radio:
+  region: ANZ
+  modem_preset: MEDIUM_FAST      # LONG_FAST is the contingency
+  # Team slot plan (ANZ): LONG_TURBO 14 = 921.750 MHz · LONG_FAST 20 = 919.875 MHz ·
+  # MEDIUM_FAST 45 = 926.125 MHz. Changing the preset means changing this too.
+  channel_num: 45
+  channels:                      # same names and keys on every radio of the mesh;
+                                 # keys of their own, not shared with other deployments
+    - {index: 0, name: EasterNetT, psk_env: EASTERNET_TELEMETRY_PSK}   # telemetry
+    - {index: 1, name: EasterNetM, psk_env: EASTERNET_MSG_PSK}         # messaging
+  rebroadcast_mode: LOCAL_ONLY
+  position_precision: 32         # full precision: the sender masks the rest away for good
+  rx_boosted_gain: true
+  # Chile, SUBTEL Res. Ex. 1.985/2017 (Norma Técnica de Equipos de Alcance
+  # Reducido), read as EIRP — the conservative reading of "potencia radiada".
+  eirp_caps:
+    - {band_mhz: [915, 928], eirp_dbm: 27, label: "SUBTEL j.3"}
+    - {band_mhz: [913, 919], eirp_dbm: 30, label: "SUBTEL j.4"}
+    - {band_mhz: [925, 928], eirp_dbm: 30, label: "SUBTEL j.4"}
+
+nodes:
+  # ── Cluster nodes: SenseCAP Solar Node P1 Pro ────────────────────────────────
+  - ref: N1
+    function: node
+    status: planned
+    node_id: "!0b64122b"
+    mac: "C1:C8:0B:64:12:2B"
+    hardware: sensecap_solar_node_p1_pro
+    mcu: nrf52840
+    firmware: null
+    role: CLIENT                 # once sites are known, the highest/farthest node may take CLIENT_BASE (plan §2.6)
+    hop_limit: 3
+    antenna:
+      type: fiberglass
+      gain_dbi: 5.8
+      band_mhz: [902, 928]
+      model: null
+      connector_loss_db: null    # measured; null = not measured yet
+    tx_power_dbm: 30             # DERIVED, not chosen: `python configure.py show` prints it
+    site:
+      name: null
+      asset_code: null
+      surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
+      planned: {lat: -27.1683611, lon: -109.438025, alt_m: 80.2, alt_source: "Cota_Fondo topografiada (ESRK-1)"}
+      antenna_height_m: null
+      mount: null
+    intervals: {device: 120, environment: 120, position: 3600}
+    sensors:
+      - {type: SHT4X, i2c_addr: "0x44", port: grove}
+
+  - ref: N2
+    function: node
+    status: planned
+    node_id: "!7c70da02"
+    mac: "D6:75:7C:70:DA:02"
+    hardware: sensecap_solar_node_p1_pro
+    mcu: nrf52840
+    firmware: null
+    role: CLIENT
+    hop_limit: 3
+    antenna:
+      type: fiberglass
+      gain_dbi: 5.8
+      band_mhz: [902, 928]
+      model: null
+      connector_loss_db: null
+    tx_power_dbm: 30
+    site:
+      name: null
+      asset_code: null
+      surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
+      planned: {lat: -27.1678528, lon: -109.4189, alt_m: 78.0, alt_source: "Cota topografiada (CSUBS-31)"}
+      antenna_height_m: null
+      mount: null
+    intervals: {device: 120, environment: 120, position: 3600}
+    sensors:
+      - {type: SHT4X, i2c_addr: "0x44", port: grove}
+
+  - ref: N3
+    function: node
+    status: planned
+    node_id: "!32fe0d4e"
+    mac: null
+    hardware: sensecap_solar_node_p1_pro
+    mcu: nrf52840
+    firmware: null
+    role: CLIENT
+    hop_limit: 3
+    antenna:
+      type: rubber
+      gain_dbi: 2.0
+      band_mhz: [902, 928]
+      model: SenseCAP stock
+      connector_loss_db: null
+    tx_power_dbm: 30
+    site:
+      name: null
+      asset_code: null
+      surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
+      planned: {lat: -27.1491861, lon: -109.4089944, alt_m: 116.65, alt_source: "Cota_Fondo topografiada (ESPP-2)"}
+      antenna_height_m: null
+      mount: null
+    intervals: {device: 120, environment: 120, position: 3600}
+    sensors:
+      - {type: SHT4X, i2c_addr: "0x44", port: grove}
+
+  # N4–N6 carry no sensor: NO `environment` key — not null, not 0: absent (V3b).
+  - ref: N4
+    function: node
+    status: planned
+    node_id: "!886217f0"
+    mac: "C7:8E:88:62:17:F0"
+    hardware: sensecap_solar_node_p1_pro
+    mcu: nrf52840
+    firmware: null
+    role: CLIENT
+    hop_limit: 3
+    antenna:
+      type: rubber
+      gain_dbi: 2.0
+      band_mhz: [902, 928]
+      model: SenseCAP stock
+      connector_loss_db: null
+    tx_power_dbm: 30
+    site:
+      name: null
+      asset_code: null
+      surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
+      planned: {lat: -27.1217417, lon: -109.4125528, alt_m: 100.0, alt_source: "SRTM 30 m (OpenTopoData)"}
+      antenna_height_m: null
+      mount: null
+    intervals: {device: 120, position: 3600}
+    sensors: []
+
+  - ref: N5
+    function: node
+    status: planned
+    node_id: "!99546767"
+    mac: "E4:33:99:54:67:67"
+    hardware: sensecap_solar_node_p1_pro
+    mcu: nrf52840
+    firmware: null
+    role: CLIENT
+    hop_limit: 3
+    antenna:
+      type: rubber
+      gain_dbi: 2.0
+      band_mhz: [902, 928]
+      model: SenseCAP stock
+      connector_loss_db: null
+    tx_power_dbm: 30
+    site:
+      name: null
+      asset_code: null
+      surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
+      planned: {lat: -27.1411639, lon: -109.4218528, alt_m: 45.0, alt_source: "SRTM 30 m (OpenTopoData)"}
+      antenna_height_m: null
+      mount: null
+    intervals: {device: 120, position: 3600}
+    sensors: []
+
+  - ref: N6
+    function: node
+    status: planned
+    node_id: "!403192d7"
+    mac: "F5:1B:40:31:92:D7"
+    hardware: sensecap_solar_node_p1_pro
+    mcu: nrf52840
+    firmware: null
+    role: CLIENT                 # centralising node: relays the cluster to GW
+    hop_limit: 3
+    antenna:
+      type: fiberglass
+      gain_dbi: 5.8
+      band_mhz: [902, 928]
+      model: null
+      connector_loss_db: null
+    tx_power_dbm: 30
+    site:
+      name: null
+      asset_code: null
+      surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
+      planned: {lat: -27.1550944, lon: -109.4360778, alt_m: 36.0, alt_source: "SRTM 30 m (OpenTopoData)"}   # GW's site: SASIPA's offices
+      antenna_height_m: null
+      mount: null
+    intervals: {device: 120, position: 3600}
+    sensors: []
+
+  # ── Gateway: a LILYGO on USB to its host (Raspberry Pi or Jetson) ────────────
+  # The host runs meshtastic-gateway. Expected at the SASIPA plant (Central
+  # SASIPA), to be confirmed like every other site.
+  - ref: GW
+    function: gateway
+    status: planned
+    node_id: null
+    mac: null
+    hardware: lilygo_tbeam_sx1276
+    mcu: esp32
+    firmware: null
+    role: CLIENT_MUTE            # hears and never relays: it must not contaminate its own measurement (I5)
+    hop_limit: 1
+    antenna:
+      type: rubber
+      gain_dbi: 2.0
+      band_mhz: null             # LILYGO stock antenna: band not recorded yet
+      model: LILYGO stock
+      connector_loss_db: null
+    tx_power_dbm: 20             # SX1276: the chip ceiling (RF95_MAX_POWER) binds
+    site:
+      name: null
+      asset_code: null
+      surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
+      planned: {lat: -27.1550944, lon: -109.4360778, alt_m: 36.0, alt_source: "SRTM 30 m (OpenTopoData)"}
+      antenna_height_m: null
+      mount: null
+    # The sink: telemetry and GPS off, so it broadcasts no measured flow. No
+    # sensor either — it would measure the inside of the building (S2).
+    intervals: {}
+    sensors: []
+
+  # ── Access nodes: a LILYGO people reach the mesh through ─────────────────────
+  # From a phone or a PC, to read and send on the mesh. Not measured: in the
+  # registry so their firmware is held to V5 like every radio on the channel,
+  # and so the gateway knows them. CLIENT_MUTE: they relay nothing. Position on
+  # air every 900 s, the firmware's own default.
+  - ref: D1
+    function: access
+    status: planned
+    node_id: null
+    mac: null
+    hardware: lilygo_tbeam_sx1276
+    mcu: esp32
+    firmware: null
+    role: CLIENT_MUTE
+    hop_limit: 1
+    antenna:
+      type: rubber
+      gain_dbi: 2.0
+      band_mhz: null
+      model: LILYGO stock
+      connector_loss_db: null
+    tx_power_dbm: 20             # SX1276: the chip ceiling (RF95_MAX_POWER) binds
+    site:
+      name: null
+      asset_code: null
+      surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
+      antenna_height_m: null
+      mount: null
+    intervals: {position: 900}
+    sensors: []
+
+  - ref: D2
+    function: access
+    status: planned
+    node_id: null
+    mac: null
+    hardware: lilygo_tbeam_sx1276
+    mcu: esp32
+    firmware: null
+    role: CLIENT_MUTE
+    hop_limit: 1
+    antenna:
+      type: rubber
+      gain_dbi: 2.0
+      band_mhz: null
+      model: LILYGO stock
+      connector_loss_db: null
+    tx_power_dbm: 20             # SX1276: the chip ceiling (RF95_MAX_POWER) binds
+    site:
+      name: null
+      asset_code: null
+      surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
+      antenna_height_m: null
+      mount: null
+    intervals: {position: 900}
+    sensors: []

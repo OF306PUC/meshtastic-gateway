@@ -6,7 +6,7 @@
 # byte-identical; the SHA-256 of every file goes into SHA256SUMS.
 #
 # Update: change a version below, run ./fetch.sh, commit the result.
-# Map tiles are not covered: they still come from openstreetmap.org.
+# The map's data (basemap, depth contours) is not here: see ../maps/fetch.sh.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -27,15 +27,27 @@ FILES=(
     "leaflet@1.9.4/LICENSE"
     "socket.io-client@4.4.1/dist/socket.io.min.js"
     "socket.io-client@4.4.1/LICENSE"
+    "protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"
+    "protomaps-leaflet@5.1.0/LICENSE"   # also covers the bundled pmtiles and @protomaps/basemaps:
+                                        # same authors and licence, and no licence file of their own
+    "@mapbox/point-geometry@1.1.0/LICENSE"   # this one and the rest: bundled inside protomaps-leaflet
+    "@mapbox/vector-tile@2.0.5/LICENSE.txt"
+    "color2k@2.0.4/LICENSE"
+    "pbf@4.0.2/LICENSE"
+    "potpack@1.0.2/LICENSE"
+    "quickselect@2.0.0/LICENSE"
+    "rbush@3.0.1/LICENSE"
 )
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 for f in "${FILES[@]}"; do
-    pkg=${f%%/*}                       # chart.js@4.6.1
-    rel=${f#*/}                        # dist/chart.umd.min.js
-    dest="${pkg/@/-}/${rel#dist/}"     # chart.js-4.6.1/chart.umd.min.js
+    [[ $f == @* ]] && n=2 || n=1       # a scoped package name spans two segments
+    pkg=$(cut -d/ -f-$n <<<"$f")       # chart.js@4.6.1, @mapbox/vector-tile@2.0.5
+    rel=${f#"$pkg"/}                   # dist/chart.umd.min.js
+    dir=${pkg#@}; dir=${dir//\//-}     # chart.js@4.6.1, mapbox-vector-tile@2.0.5
+    dest="${dir/@/-}/${rel#dist/}"     # chart.js-4.6.1/chart.umd.min.js
     curl -fsSL "https://cdn.jsdelivr.net/npm/$f" -o "$tmp/a"
     curl -fsSL "https://unpkg.com/$f" -o "$tmp/b"
     if ! cmp -s "$tmp/a" "$tmp/b"; then

@@ -102,7 +102,7 @@
         { key: "voltage",        label: "Voltage",      unit: "V",  color: "#e0a854" },
         { key: "channel_util",   label: "Channel Util", unit: "%",  color: "#a054e0" },
         { key: "air_util_tx",    label: "Air Util TX",  unit: "%",  color: "#e054c8" },
-        { key: "uptime_seconds", label: "Uptime",       unit: "s",  color: "#54c8e0" },
+        { key: "uptime_seconds", label: "Uptime",       unit: "HH:MM:SS", color: "#54c8e0" },
         // Position (fixed installations — flat line confirms node is reporting)
         { key: "rssi",           label: "RSSI Rx Message",   unit: "dBm",  color: "#7be07b" },
         { key: "snr",            label: "SNR Rx Message" ,   unit: "dBm",  color: "#7be0b8" },
@@ -129,12 +129,28 @@
         return new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     }
 
+    // Uptime is how long the node has lived since its last boot: HH:MM:SS,
+    // with hours past 24 rather than days.
+    function fmtDuration(seconds) {
+        const t = Math.max(0, Math.round(seconds));
+        const pad = n => String(n).padStart(2, "0");
+        return `${pad(Math.floor(t / 3600))}:${pad(Math.floor(t % 3600 / 60))}:${pad(t % 60)}`;
+    }
+
+    // Ticks a person reads as durations: whole minutes and hours, at most 8.
+    const DURATION_STEPS = [60, 300, 600, 1800, 3600, 3 * 3600, 6 * 3600, 12 * 3600, 24 * 3600];
+    function durationTicks(axis) {
+        const span = axis.max - axis.min;
+        const step = DURATION_STEPS.find(s => span / s <= 8) || 24 * 3600;
+        axis.ticks = [];
+        for (let v = Math.ceil(axis.min / step) * step; v <= axis.max; v += step) {
+            axis.ticks.push({ value: v });
+        }
+    }
+
     function fmtVal(key, v) {
         if (v === null || v === undefined) return "—";
-        if (key === "uptime_seconds") {
-            const h = Math.floor(v / 3600), m = Math.floor((v % 3600) / 60);
-            return `${h}h ${m}m`;
-        }
+        if (key === "uptime_seconds") return fmtDuration(v);
         return typeof v === "number" ? v.toFixed(3) : String(v);
     }
 
@@ -142,6 +158,7 @@
     function createChart(field) {
         const { key, label, unit, color } = field;
         const grid = document.getElementById("charts-grid");
+        const isDuration = key === "uptime_seconds";
 
         const card = document.createElement("div");
         card.className = "chart-card";
@@ -203,7 +220,8 @@
                         title: { display: true, text: "Time", color: "#445a66", font: { size: 10 } },
                     },
                     y: {
-                        ticks: { color: "#7a9aaa" },
+                        ticks: { color: "#7a9aaa", ...(isDuration && { callback: v => fmtDuration(v) }) },
+                        ...(isDuration && { afterBuildTicks: durationTicks }),
                         grid:  { color: "#1e3040" },
                     }
                 },
@@ -220,6 +238,7 @@
                     tooltip: {
                         titleColor: "#ccc",
                         bodyColor: "#eee",
+                        ...(isDuration && { callbacks: { label: c => `${label}: ${fmtDuration(c.parsed.y)}` } }),
                     },
                 }
             }

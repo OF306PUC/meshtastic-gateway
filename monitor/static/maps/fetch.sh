@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#
+# Builds the dashboard's offline map into this directory: a basemap cut out of
+# the Protomaps build of OpenStreetMap (basemap.pmtiles) and depth contours
+# around the sites at sea (bathymetry.geojson). Run it on a machine with
+# internet and commit the result: the field host needs none.
+#
+# Needs pmtiles (https://github.com/protomaps/go-pmtiles/releases) on PATH, and
+# the repository's .venv with tools/requirements.txt installed.
+#
+# Update: change BUILD (https://maps.protomaps.com/builds/ lists the daily
+# builds; old ones are deleted) or a box below, run ./fetch.sh, commit the result.
+#
+# Licences, credited on the map itself: OpenStreetMap data is ODbL
+# (© OpenStreetMap contributors); the depth grid is GEBCO's (GEBCO Compilation
+# Group, 2020), free to use and redistribute, not for navigation.
+
+set -euo pipefail
+cd "$(dirname "$0")"
+root=$(cd ../../.. && pwd)
+
+BUILD=20261029            # Protomaps basemap build, YYYYMMDD
+MAXZOOM=15                # the build's own maximum; the map overzooms past it
+
+# Boxes: SOUTH WEST NORTH EAST
+SAN_JOAQUIN="-33.53 -70.66 -33.46 -70.56"     # the campus and around it, Santiago
+RAPA_NUI="-27.50 -109.80 -26.80 -108.90"      # the island and its slopes to 3000 m
+
+command -v pmtiles >/dev/null || { echo "error: pmtiles is not on PATH (see the top of $0)" >&2; exit 1; }
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+ring() { read -r s w n e <<<"$1"; echo "[[[$w,$s],[$e,$s],[$e,$n],[$w,$n],[$w,$s]]]"; }
+echo "{\"type\":\"MultiPolygon\",\"coordinates\":[$(ring "$SAN_JOAQUIN"),$(ring "$RAPA_NUI")]}" \
+    > "$tmp/region.geojson"
+pmtiles extract "https://build.protomaps.com/$BUILD.pmtiles" "$tmp/basemap.pmtiles" \
+    --region="$tmp/region.geojson" --maxzoom=$MAXZOOM
+
+# shellcheck disable=SC2086  # the box is four arguments
+(cd "$root" && .venv/bin/python -m tools.bathymetry --bbox $RAPA_NUI --out "$tmp/bathymetry.geojson")
+
+mv "$tmp/basemap.pmtiles" "$tmp/bathymetry.geojson" .
+sha256sum basemap.pmtiles bathymetry.geojson > SHA256SUMS
+echo "SHA256SUMS written"

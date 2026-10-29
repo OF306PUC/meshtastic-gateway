@@ -2,6 +2,7 @@
 41a84aa2caba645f966a18d9c2056b73e6d3a81d80bc0046bc0011a2634d4cce  ./chart.js-4.6.1/LICENSE.md
 ea7ab30d26c38dcf1f2d26bb43e73a94537b58f1906f55e1a546dd09321b5615  ./chartjs-adapter-date-fns-3.0.0/chartjs-adapter-date-fns.bundle.min.js
 b4b8355c2cd2b18354980a0c6422181d7bd6e895d94ae88b3570e97c60eea03d  ./chartjs-adapter-date-fns-3.0.0/LICENSE.md
+c79d467359b6bee3be1a1e6537099b9953d8868fbc014f8bd7ce3df899230b14  ./color2k-2.0.4/LICENSE
 d3d4c536c5e003933ffa274c6a0d3b4e03f851960ecd60727846d38b18e7d959  ./date-fns-2.19.0/LICENSE.md
 066daca850d8ffbef007af00b06eac0015728dee279c51f3cb6c716df7c42edf  ./leaflet-1.9.4/images/layers-2x.png
 1dbbe9d028e292f36fcba8f8b3a28d5e8932754fc2215b9ac69e4cdecf5107c6  ./leaflet-1.9.4/images/layers.png
@@ -11,5 +12,13 @@ d3d4c536c5e003933ffa274c6a0d3b4e03f851960ecd60727846d38b18e7d959  ./date-fns-2.1
 a7837102824184820dfa198d1ebcd109ff6d0ff9a2672a074b9a1b4d147d04c6  ./leaflet-1.9.4/leaflet.css
 db49d009c841f5ca34a888c96511ae936fd9f5533e90d8b2c4d57596f4e5641a  ./leaflet-1.9.4/leaflet.js
 53e8dc25862014e4324741ca18fbe3611e11d42ef69f59f86ea8c5389647d4cb  ./leaflet-1.9.4/LICENSE
+0c0ede0036a425ff8b2d49341ea9aa8eccbeeae1ac4eb59874c9dd8bcf5186d3  ./mapbox-point-geometry-1.1.0/LICENSE
+5b09a507df6f21d6c2112c46dcaf2927b9dbd8b580a08b542d8ec2f9191d783d  ./mapbox-vector-tile-2.0.5/LICENSE.txt
+85a46bda3ddc8bb2fe2a6c361ed8ab75898c81b5d054a57a0722f1fa364c0136  ./pbf-4.0.2/LICENSE
+2c620eaf6c3ee3e33b07f3b6ef0dfd0a9e0a52c93a46aa4ccf7773dbb562daec  ./potpack-1.0.2/LICENSE
+a2ada548aa25012e833b71364a402d6924f2afcf5f8f146e2989a377290ab3ad  ./protomaps-leaflet-5.1.0/LICENSE
+26af014f7b1af308ec120b791cff76657bb9c3383633b52033e6edf9e5e4cdb5  ./protomaps-leaflet-5.1.0/protomaps-leaflet.js
+597034cb7c11c916ad407344ea99a0b08e3c443a6b4421460f1d23c411c69707  ./quickselect-2.0.0/LICENSE
+58c86fab9ba45724c811fd51c6d072eae0f2cbd03023f1dbbba10ff8758bda10  ./rbush-3.0.1/LICENSE
 62e2032a1e1458b1d92a62f5fc51be48e08b95062295c91a9f3bd3686809d37e  ./socket.io-client-4.4.1/LICENSE
 907ae7db99cd3733cf8d56529300bb9e6e2c1dfc69ad9a05a7f875618d64a14a  ./socket.io-client-4.4.1/socket.io.min.js

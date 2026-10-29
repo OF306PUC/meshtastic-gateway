@@ -1,22 +1,58 @@
 {% extends "base.html" %}
 {% block nav_map %}active{% endblock %}
 
+{% block head %}
+<script src="{{ url_for('static', filename='vendor/protomaps-leaflet-5.1.0/protomaps-leaflet.js') }}"></script>
+{% endblock %}
+
 {% block content %}
 <div id="map"></div>
-<div id="map-status">Fetching node positions…</div>
+<div id="map-status"><span id="nodes-status">Fetching node positions…</span><span id="depth-status"></span></div>
 
 <script>
 (function () {
     "use strict";
 
     // A world view until the nodes are known: the deployment decides where to look.
-    const map = L.map("map").setView([0, 0], 2);
+    const map = L.map("map", { maxZoom: 18 }).setView([0, 0], 2);
     const markerLayer = L.layerGroup().addTo(map);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+
+    // Basemap and depth contours come from static/maps (see its fetch.sh), so the
+    // map works without internet. Outside the boxes cut out there it is blank.
+    protomapsL.leafletLayer({
+        url: "/static/maps/basemap.pmtiles",
+        flavor: "dark",
+        lang: "es",
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://protomaps.com">Protomaps</a>'
     }).addTo(map);
 
-    const status = document.getElementById("map-status");
+    const depthLayer = L.layerGroup().addTo(map);
+    L.control.layers(null, { "Depth contours": depthLayer }).addTo(map);
+    const depthStatus = document.getElementById("depth-status");
+
+    // Deeper is darker: 100 m pale cyan to 3000 m deep blue.
+    function depthColour(m) {
+        const t = Math.min(Math.log(m / 100) / Math.log(30), 1);
+        return `hsl(200, 80%, ${78 - 40 * t}%)`;
+    }
+
+    fetch("/static/maps/bathymetry.geojson")
+        .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
+        .then(data => {
+            L.geoJSON(data, {
+                style: f => ({ color: depthColour(f.properties.depth_m), weight: 1.2, opacity: 0.9 }),
+                onEachFeature: (f, line) => line.bindTooltip(`${f.properties.depth_m} m deep`, { sticky: true })
+            }).addTo(depthLayer);
+            map.attributionControl.addAttribution("Depths: GEBCO 2020");
+        })
+        .catch(e => { depthStatus.textContent = `Depth contours unavailable: ${e.message}`; console.error(e); });
+
+    const status = document.getElementById("nodes-status");
+    const PLANNED_STYLE = { radius: 9, color: "#e0b050", weight: 2, dashArray: "4 3",
+                            fillColor: "#e0b050", fillOpacity: 0.2 };
 
     function load() {
         fetch("/api/nodes")
@@ -31,39 +67,57 @@
                     status.textContent = "No surveyed positions and no GPS data yet.";
                     return;
                 }
-                status.textContent = `${nodes.length} node(s) found — click a marker to open the live dashboard.`;
+                const planned = nodes.filter(n => n.source === "planned").length;
+                status.textContent = `${nodes.length} node(s) found` +
+                    (planned ? `, ${planned} only at a planned site (dashed)` : "") +
+                    (nodes.some(n => n.node_id) ? " — click a marker to open the live dashboard." : ".");
+
+                // Nodes at one point (a relay beside its gateway) share a marker:
+                // otherwise the top one hides the rest.
+                const sites = new Map();
+                nodes.forEach(n => {
+                    const key = `${n.lat},${n.lon},${n.source === "planned"}`;
+                    if (!sites.has(key)) sites.set(key, []);
+                    sites.get(key).push(n);
+                });
 
                 markerLayer.clearLayers();
                 const bounds = [];
-                nodes.forEach(n => {
-                    const marker = L.marker([n.lat, n.lon]).addTo(markerLayer);
-                    bounds.push([n.lat, n.lon]);
+                sites.forEach(group => {
+                    const { lat, lon, source } = group[0];
+                    // A planned site is a desk choice, not a measurement: drawn apart.
+                    const marker = (source === "planned"
+                        ? L.circleMarker([lat, lon], PLANNED_STYLE)
+                        : L.marker([lat, lon])).addTo(markerLayer);
+                    bounds.push([lat, lon]);
 
                     const popup = document.createElement("div");
-                    const title = document.createElement("b");
-                    title.textContent = n.node_label || n.node_id;
-                    const id = document.createElement("small");
-                    id.textContent = n.node_id;
-                    const coords = document.createElement("span");
-                    coords.textContent = `${n.lat.toFixed(6)}, ${n.lon.toFixed(6)}`;
-                    const link = document.createElement("a");
-                    link.href = `/dashboard?node=${encodeURIComponent(n.node_id)}`;
-                    link.style.cssText = "color:#4BC0C0;font-weight:bold;";
-                    link.textContent = "Open dashboard →";
-                    popup.appendChild(title);
-                    popup.appendChild(document.createElement("br"));
-                    popup.appendChild(id);
-                    popup.appendChild(document.createElement("br"));
-                    popup.appendChild(coords);
-                    popup.appendChild(document.createElement("br"));
-                    popup.appendChild(document.createElement("br"));
-                    popup.appendChild(link);
+                    group.forEach((n, i) => {
+                        if (i) popup.appendChild(document.createElement("hr"));
+                        const title = document.createElement("b");
+                        title.textContent = n.node_label || n.node_id;
+                        const id = document.createElement("small");
+                        id.textContent = (n.node_id || "no node id yet") +
+                            (n.source === "planned" ? " · planned site" : "");
+                        popup.append(title, document.createElement("br"), id);
+                        if (n.node_id) {
+                            const link = document.createElement("a");
+                            link.href = `/dashboard?node=${encodeURIComponent(n.node_id)}`;
+                            link.style.cssText = "color:#4BC0C0;font-weight:bold;";
+                            link.textContent = "Open dashboard →";
+                            popup.append(document.createElement("br"), link);
+                        }
+                    });
+                    const coords = document.createElement("small");
+                    coords.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+                    popup.append(document.createElement("br"), document.createElement("br"), coords);
                     marker.bindPopup(popup);
                     marker.on("mouseover", () => marker.openPopup());
 
-                    // Single click also navigates
-                    marker.on("click", () => {
-                        window.location.href = `/dashboard?node=${encodeURIComponent(n.node_id)}`;
+                    // A single click also navigates, when the marker is one node with a dashboard
+                    const only = group.length === 1 ? group[0] : null;
+                    if (only && only.node_id) marker.on("click", () => {
+                        window.location.href = `/dashboard?node=${encodeURIComponent(only.node_id)}`;
                     });
                 });
 

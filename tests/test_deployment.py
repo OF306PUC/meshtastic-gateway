@@ -5,7 +5,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from gateway.deployment import (ENV_DEPLOYMENT, ENV_DEPLOYMENTS_DIR, DeploymentError, load)
+from gateway.deployment import (ENV_DEPLOYMENT, ENV_DEPLOYMENTS_DIR, DeploymentError, Position,
+                                deployments_dir, load)
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "deployments"
 TEST_MESH = FIXTURES / "test-mesh.yaml"
@@ -54,6 +55,20 @@ class TestLoad(unittest.TestCase):
         env = {ENV_DEPLOYMENT: "test-mesh", ENV_DEPLOYMENTS_DIR: str(FIXTURES)}
         self.assertEqual(load(environ=env).name, "test-mesh")
 
+    def test_by_folder_and_name(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "client").mkdir()
+            (Path(d) / "client" / "test-mesh.yaml").write_bytes(TEST_MESH.read_bytes())
+            env = {ENV_DEPLOYMENT: "client/test-mesh", ENV_DEPLOYMENTS_DIR: d}
+            self.assertEqual(load(environ=env).name, "test-mesh")
+
+    def test_every_file_this_repository_ships_loads(self):
+        files = [p for p in deployments_dir({}).rglob("*.yaml") if not p.stem.startswith("_")]
+        self.assertGreaterEqual(len(files), 2)
+        for path in files:
+            with self.subTest(path=path.name):
+                self.assertEqual(load(str(path)).name, path.stem)
+
     def test_nothing_defaults(self):
         with self.assertRaisesRegex(DeploymentError, ENV_DEPLOYMENT):
             load(environ={})
@@ -82,8 +97,8 @@ class TestCadenceScale(unittest.TestCase):
                 load(str(path))
 
 
-class TestSurveyed(unittest.TestCase):
-    """site.surveyed, read for the dashboard's map with the platform's rules."""
+class TestPositions(unittest.TestCase):
+    """site.surveyed and site.planned, read for the dashboard's map with the platform's rules."""
 
     def setUp(self):
         self.nodes = {n.ref: n for n in load(str(TEST_MESH)).nodes}
@@ -92,26 +107,29 @@ class TestSurveyed(unittest.TestCase):
         s = self.nodes["N1"].surveyed
         self.assertEqual((s.lat, s.lon, s.alt_m), (-27.1127, -109.3497, 120.5))
 
-    def test_the_planned_desk_position_is_never_read(self):
-        self.assertNotEqual((self.nodes["N1"].surveyed.lat, self.nodes["N1"].surveyed.lon),
-                            (-27.0, -109.0))
+    def test_planned_is_read_apart_never_as_the_survey(self):
+        self.assertEqual(self.nodes["N1"].planned, Position(-27.0, -109.0, None))
+        self.assertEqual(self.nodes["N1"].surveyed.lat, -27.1127)
+        self.assertEqual(self.nodes["R1"].planned, Position(-27.25, -109.25, 40.0))
+        self.assertIsNone(self.nodes["R1"].surveyed)
 
     def test_an_all_null_template_block_is_not_surveyed_yet(self):
         self.assertIsNone(self.nodes["P1"].surveyed)
         self.assertIsNone(self.nodes["GW"].surveyed)          # no site block at all
 
-    def test_bad_surveyed_blocks(self):
-        for block, pattern in (("{lat: -27.1, lon: null}", "a number is required"),
-                               ("{lat: 0, lon: -109.3}", "looks unset"),
-                               ("{lat: -127.1, lon: -109.3}", "out of range"),
-                               ("{lat: true, lon: -109.3}", "a number is required"),
-                               ("{lat: -27.1, lon: -109.3, alt_m: high}", "alt_m"),
-                               ("{}", "a number is required")):
-            with self.subTest(block=block), tempfile.TemporaryDirectory() as d:
-                nodes = (NODE.format(ref="N1", node_id="!0b64122b", intervals="{}")
-                         + f"    site: {{surveyed: {block}}}\n")
-                with self.assertRaisesRegex(DeploymentError, pattern):
-                    load(str(_write(d, "mesh", nodes)))
+    def test_bad_position_blocks(self):
+        for key in ("surveyed", "planned"):
+            for block, pattern in (("{lat: -27.1, lon: null}", "a number is required"),
+                                   ("{lat: 0, lon: -109.3}", "looks unset"),
+                                   ("{lat: -127.1, lon: -109.3}", "out of range"),
+                                   ("{lat: true, lon: -109.3}", "a number is required"),
+                                   ("{lat: -27.1, lon: -109.3, alt_m: high}", "alt_m"),
+                                   ("{}", "a number is required")):
+                with self.subTest(key=key, block=block), tempfile.TemporaryDirectory() as d:
+                    nodes = (NODE.format(ref="N1", node_id="!0b64122b", intervals="{}")
+                             + f"    site: {{{key}: {block}}}\n")
+                    with self.assertRaisesRegex(DeploymentError, f"site.{key}.*{pattern}"):
+                        load(str(_write(d, "mesh", nodes)))
 
 
 class TestStrictOnWhatItReads(unittest.TestCase):

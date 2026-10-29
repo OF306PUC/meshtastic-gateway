@@ -45,7 +45,7 @@ NEUTRAL = dict(color=INK_SECONDARY, linestyle="-", marker="o",
 def node_styles(nodes) -> dict[str, dict]:
     """{published name: ax.plot kwargs} for deployment nodes, in file order.
 
-    A role outside ROLE_STEPS (gateway, receiver) gets the neutral style, as does
+    A role outside ROLE_STEPS (gateway, receiver, access) gets the neutral style, as does
     any name the caller looks up that is not here: a node still plots.
     """
     styles, seen = {}, {}
