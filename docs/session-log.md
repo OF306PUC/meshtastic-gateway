@@ -20,6 +20,27 @@ Entry format:
 
 ---
 
+## 2026-10-30 — rapa-nui.yaml sincronizado otra vez con la plataforma
+**Time:** 19:05 (aprox)
+**User request:** copiar aquí el `.yaml` de la plataforma.
+
+### Actions taken
+- Copiado `deployments/rapa-nui.yaml` de la plataforma (commits `9d17270` y
+  `6d161b0`) a `deployments/sasipa/rapa-nui.yaml`, byte a byte (sha
+  `01a9376b…`). El gateway lo lee; 278 tests OK.
+
+### Outcomes
+- GW (`!6c74104c`), D1 (`!6c72f308`) y D2 (`!6c743130`) ya tienen `node_id`:
+  el receptor reconoce la radio de pi7 y acepta mensajes enviados desde D1/D2.
+  D1 y D2 declaran `position: 900`, así que su entrega se mide una vez oídos.
+- N3 queda sin `node_id` (la plataforma aún no sabe qué caja es N3): si
+  transmitiera, se descartaría como remitente desconocido y no tendría marcador
+  más que el planificado.
+- Campos nuevos (`firmware`, `site.name`, `asset_code`, `asset_type`, `notes`):
+  el gateway no los lee.
+
+---
+
 ## 2026-10-30 — Preparación de la prueba local de rapa-nui en la oficina
 **Time:** 12:30–13:00 (aprox)
 **User request:** probar rapa-nui en la oficina con el yaml actualizado de la

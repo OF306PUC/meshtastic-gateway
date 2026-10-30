@@ -52,7 +52,7 @@ sudo nmcli connection add type wifi ifname wlan0 con-name terreno-ap \
 
 With the laptop next to the host.
 
-1. On the host: `sudo nmcli connection up terreno-ap`. An SSH session over the
+1. On the host: `sudo nmcli connection up terrain-ap`. An SSH session over the
    office network freezes here: expected.
 2. On the laptop, join `meshtastic-gw`. It gets a `10.42.0.x` address.
 3. Open `http://10.42.0.1/` and log in as `dashboard`.

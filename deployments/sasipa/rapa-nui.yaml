@@ -7,8 +7,11 @@
 # the mesh through from a phone or a PC, CLIENT_MUTE). N1–N6 and GW carry a
 # `site.planned` point from deployments/sasipa-info/sitios_sasipa.json: desk
 # coordinates from the SASIPA SHP layers in Google Earth, not a measurement.
-# N6 shares GW's point, SASIPA's offices.
-# The rest of every `site` block is an empty template, filled in on site.
+# N6 shares GW's point, SASIPA's offices. From the same file, and with exactly
+# the same TENTATIVE standing, come each node's `site.name`, `asset_code` and
+# `asset_type`: which SASIPA asset it is MEANT to sit on, 1-2.5 m from that
+# point. `surveyed` and `antenna_height_m` stay empty until someone stands
+# there (rule 11) — that reading is what confirms or refutes the assignment.
 #
 # ── HOW TO FILL A NODE ON SITE ───────────────────────────────────────────────
 #  1. Flash (docs/flashing.md) and configure it:
@@ -97,6 +100,10 @@ radio:
 
 nodes:
   # ── Cluster nodes: SenseCAP Solar Node P1 Pro ────────────────────────────────
+  # Every ref in this file is painted on its case: the ref IS the physical
+  # label (user, 2026-10-30), so no `label:` is set anywhere. A label equal to
+  # the ref would only be a second copy of it, free to drift from it. What is
+  # still missing is which case is N3.
   - ref: N1
     function: node
     status: planned
@@ -104,7 +111,7 @@ nodes:
     mac: "C1:C8:0B:64:12:2B"
     hardware: sensecap_solar_node_p1_pro
     mcu: nrf52840
-    firmware: null
+    firmware: "2.7.26"
     role: CLIENT                 # once sites are known, the highest/farthest node may take CLIENT_BASE (plan §2.6)
     hop_limit: 3
     antenna:
@@ -115,8 +122,9 @@ nodes:
       connector_loss_db: null
     tx_power_dbm: 30             # DERIVED, not chosen: `python configure.py show` prints it
     site:
-      name: null
-      asset_code: null
+      name: "REG-RK-EST-1"
+      asset_code: "ESRK-1"
+      asset_type: "Estanque"
       surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
       planned: {lat: -27.1683611, lon: -109.438025, alt_m: 80.2, alt_source: "Cota_Fondo topografiada (ESRK-1)"}
       antenna_height_m: null
@@ -132,7 +140,7 @@ nodes:
     mac: "D6:75:7C:70:DA:02"
     hardware: sensecap_solar_node_p1_pro
     mcu: nrf52840
-    firmware: null
+    firmware: "2.7.26"
     role: CLIENT
     hop_limit: 3
     antenna:
@@ -143,8 +151,9 @@ nodes:
       connector_loss_db: null
     tx_power_dbm: 30
     site:
-      name: null
-      asset_code: null
+      name: "Pozo N 31"
+      asset_code: "CSUBS-31"
+      asset_type: "Captacion"
       surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
       planned: {lat: -27.1678528, lon: -109.4189, alt_m: 78.0, alt_source: "Cota topografiada (CSUBS-31)"}
       antenna_height_m: null
@@ -156,7 +165,7 @@ nodes:
   - ref: N3
     function: node
     status: planned
-    node_id: "!32fe0d4e"
+    node_id: null
     mac: null
     hardware: sensecap_solar_node_p1_pro
     mcu: nrf52840
@@ -171,8 +180,9 @@ nodes:
       connector_loss_db: null
     tx_power_dbm: 30
     site:
-      name: null
-      asset_code: null
+      name: "REG-PP-EST-2"
+      asset_code: "ESPP-2"
+      asset_type: "Estanque"
       surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
       planned: {lat: -27.1491861, lon: -109.4089944, alt_m: 116.65, alt_source: "Cota_Fondo topografiada (ESPP-2)"}
       antenna_height_m: null
@@ -189,7 +199,7 @@ nodes:
     mac: "C7:8E:88:62:17:F0"
     hardware: sensecap_solar_node_p1_pro
     mcu: nrf52840
-    firmware: null
+    firmware: "2.7.26"
     role: CLIENT
     hop_limit: 3
     antenna:
@@ -200,14 +210,16 @@ nodes:
       connector_loss_db: null
     tx_power_dbm: 30
     site:
-      name: null
-      asset_code: null
+      name: "REG-LC-EST-1"
+      asset_code: "ESLC-1"
+      asset_type: "Estanque"
       surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
       planned: {lat: -27.1217417, lon: -109.4125528, alt_m: 100.0, alt_source: "SRTM 30 m (OpenTopoData)"}
       antenna_height_m: null
       mount: null
     intervals: {device: 120, position: 3600}
     sensors: []
+    notes: "Asset assignment uncertain: the catastro Cota_Fondo for ESLC-1 (151.54 m) disagrees with SRTM (100 m) and with the 5 m contours (94.9 m), which sitios_sasipa.json reads as a possible ESVAI-1/ESLC-1 transposition. Confirm the code with GPS on site."
 
   - ref: N5
     function: node
@@ -216,7 +228,7 @@ nodes:
     mac: "E4:33:99:54:67:67"
     hardware: sensecap_solar_node_p1_pro
     mcu: nrf52840
-    firmware: null
+    firmware: "2.7.26"
     role: CLIENT
     hop_limit: 3
     antenna:
@@ -229,6 +241,7 @@ nodes:
     site:
       name: null
       asset_code: null
+      asset_type: "Relay"
       surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
       planned: {lat: -27.1411639, lon: -109.4218528, alt_m: 45.0, alt_source: "SRTM 30 m (OpenTopoData)"}
       antenna_height_m: null
@@ -243,7 +256,7 @@ nodes:
     mac: "F5:1B:40:31:92:D7"
     hardware: sensecap_solar_node_p1_pro
     mcu: nrf52840
-    firmware: null
+    firmware: "2.7.26"
     role: CLIENT                 # centralising node: relays the cluster to GW
     hop_limit: 3
     antenna:
@@ -254,8 +267,9 @@ nodes:
       connector_loss_db: null
     tx_power_dbm: 30
     site:
-      name: null
+      name: "Central SASIPA"
       asset_code: null
+      asset_type: "Gateway"
       surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
       planned: {lat: -27.1550944, lon: -109.4360778, alt_m: 36.0, alt_source: "SRTM 30 m (OpenTopoData)"}   # GW's site: SASIPA's offices
       antenna_height_m: null
@@ -269,11 +283,11 @@ nodes:
   - ref: GW
     function: gateway
     status: planned
-    node_id: null
-    mac: null
+    node_id: "!6c74104c"
+    mac: "A0:DD:6C:74:10:4C"
     hardware: lilygo_tbeam_sx1276
     mcu: esp32
-    firmware: null
+    firmware: "2.7.26"
     role: CLIENT_MUTE            # hears and never relays: it must not contaminate its own measurement (I5)
     hop_limit: 1
     antenna:
@@ -284,8 +298,9 @@ nodes:
       connector_loss_db: null
     tx_power_dbm: 20             # SX1276: the chip ceiling (RF95_MAX_POWER) binds
     site:
-      name: null
+      name: "Central SASIPA"
       asset_code: null
+      asset_type: "Gateway"
       surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
       planned: {lat: -27.1550944, lon: -109.4360778, alt_m: 36.0, alt_source: "SRTM 30 m (OpenTopoData)"}
       antenna_height_m: null
@@ -303,11 +318,11 @@ nodes:
   - ref: D1
     function: access
     status: planned
-    node_id: null
-    mac: null
+    node_id: "!6c72f308"
+    mac: "A0:DD:6C:72:F3:08"
     hardware: lilygo_tbeam_sx1276
     mcu: esp32
-    firmware: null
+    firmware: "2.7.26"
     role: CLIENT_MUTE
     hop_limit: 1
     antenna:
@@ -320,6 +335,7 @@ nodes:
     site:
       name: null
       asset_code: null
+      asset_type: null
       surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
       antenna_height_m: null
       mount: null
@@ -329,11 +345,11 @@ nodes:
   - ref: D2
     function: access
     status: planned
-    node_id: null
-    mac: null
+    node_id: "!6c743130"
+    mac: "A0:DD:6C:74:31:30"
     hardware: lilygo_tbeam_sx1276
     mcu: esp32
-    firmware: null
+    firmware: "2.7.26"
     role: CLIENT_MUTE
     hop_limit: 1
     antenna:
@@ -346,6 +362,7 @@ nodes:
     site:
       name: null
       asset_code: null
+      asset_type: null
       surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
       antenna_height_m: null
       mount: null
