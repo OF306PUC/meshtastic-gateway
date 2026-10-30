@@ -20,6 +20,39 @@ Entry format:
 
 ---
 
+## 2026-10-30 — Colores y logo de SASIPA; dos fallas del mapa base
+**Time:** 10:15–10:45 (aprox)
+**User request:** el usuario agregó `monitor/static/assets/` con los logos
+(`sasipa-logo.png`, `sasipa-logo-white.png`, `ssat-logo.png`).
+
+### Actions taken
+- `--node` = naranja de SASIPA (`#F37014`, muestreado del logo): nodos del
+  mapa y del grafo. Lo planificado: mismo naranja, punteado y casi sin relleno
+  (se quitó `--planned`). Curvas de tierra a un arena desaturado, para que el
+  naranja resalte.
+- Logo de SASIPA (el transparente) en el encabezado del panel de gráficos;
+  test de que se sirve desde aquí.
+- `fetch.sh`: caja del mapa base de Rapa Nui más ancha (`RAPA_NUI_SEA`, mar
+  abierto: el archivo casi no crece) y la del relieve igual que antes. Mapa
+  base regenerado.
+- Mapa: ajuste a los nodos sin animación. Con la animación, el mapa base pedía
+  teselas para los cuadros intermedios y una franja del borde quedaba vacía
+  (reproducido en Chrome headless a 911 px; todas las teselas estaban en el
+  archivo).
+- `map_urls()`: la URL del mapa base y del relieve lleva el hash de
+  `maps/SHA256SUMS` (`?v=`). El navegador lee el mapa base por rangos y, la
+  primera vez tras regenerarlo, mezcló rangos del archivo viejo: isla vacía
+  hasta recargar. Con la versión en la URL, cada archivo es otra dirección.
+
+### Outcomes
+- Capturas a 911×512: nodos naranjas sobre curvas arena, logo en el panel,
+  sin franja vacía. 261/261 tests.
+
+### Next steps / open questions
+- `ssat-logo.png` y `sasipa-logo-white.png` sin uso: preguntar dónde van.
+
+---
+
 ## 2026-10-29 — Dashboard: LoRa Mesh, paleta Meshtastic, grafo de enlaces
 **Time:** 16:40–17:30 (aprox)
 **User request:** en su laptop Windows (pantalla reducida) los gráficos no se

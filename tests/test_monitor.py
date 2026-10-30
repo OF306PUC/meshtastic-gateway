@@ -15,7 +15,7 @@ from paho.mqtt.packettypes import PacketTypes
 from paho.mqtt.reasoncodes import ReasonCode
 
 from gateway.config import ConfigError
-from monitor.app import create_app
+from monitor.app import create_app, map_urls
 from monitor.param import from_env
 from monitor.utils import DatabaseError, InfluxDBConnector, MQTTConnector
 
@@ -192,6 +192,15 @@ class TestPages(MonitorCase):
         self.assertIn(b'id="dash-error"', r.data)
         self.assertIn(b'id="graph"', client.get("/graph").data)
 
+    def test_the_client_logo_is_on_the_charts_and_served_here(self):
+        client = self.client(_DB())
+        logo = re.search(r'<img class="client-logo" src="([^"]+)"',
+                         client.get(f"/dashboard?node={N1}").data.decode()).group(1)
+        self.assertEqual(logo, "/static/assets/sasipa-logo.png")
+        r = client.get(logo)
+        self.assertEqual((r.status_code, r.mimetype), (200, "image/png"))
+        r.close()
+
     def test_climate_charts_only_for_a_node_with_the_sensor(self):
         client = self.client(_DB())
         for node_id, expected in ((N1, b"true"), (P1, b"false"), ("!0000beef", b"true")):
@@ -227,13 +236,22 @@ class TestOfflineAssets(MonitorCase):
         client = self.client(_DB())
         page = client.get("/map").data.decode()
         refs = re.findall(r'(?:url:|fetch\()\s*"([^"]+)"', page)
-        self.assertIn("/static/maps/basemap.pmtiles", refs)
-        self.assertIn("/static/maps/relief.geojson", refs)
+        sums = dict(reversed(line.split(maxsplit=1)) for line in
+                    (self.STATIC / "maps" / "SHA256SUMS").read_text().splitlines())
+        for name in ("basemap.pmtiles", "relief.geojson"):
+            # A new archive is a new address: the browser never mixes byte
+            # ranges of an older basemap with this one.
+            self.assertIn(f"/static/maps/{name}?v={sums[name][:12]}", refs)
         for ref in refs:
             self.assertTrue(ref.startswith("/"), ref)
             r = client.get(ref)
             self.assertEqual(r.status_code, 200, ref)
             r.close()
+
+    def test_without_hashes_the_map_data_has_plain_addresses(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(map_urls(Path(d)), {"basemap": "/static/maps/basemap.pmtiles",
+                                                 "relief": "/static/maps/relief.geojson"})
 
     def test_map_data_is_served_in_ranges(self):
         # The basemap is one file the browser reads piece by piece (HTTP Range).

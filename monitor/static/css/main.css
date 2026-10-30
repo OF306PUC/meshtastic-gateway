@@ -13,8 +13,7 @@
     --accent-bg: #67ea9420;
     --danger:    #f0716b;
     --warn:      #e3b341;
-    --planned:   #ff5fa2;
-    --node:      #58a6ff;   /* the nodes, on the map and the graph: SASIPA's colour once its logo is in */
+    --node:      #f37014;   /* the nodes, on the map and the graph: SASIPA's orange (its logo) */
 }
 
 html, body {

@@ -6,6 +6,8 @@ which the map would show as "no nodes yet".
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO
 
@@ -13,7 +15,25 @@ from gateway.deployment import DeploymentError, Node, load
 from monitor.param import TOTAL_SAMPLES_48HRS, Config
 from monitor.utils import ALL_FIELDS, NODE_ID_RE, DatabaseError
 
-__all__ = ["create_app", "deployment_nodes"]
+__all__ = ["create_app", "deployment_nodes", "map_urls"]
+
+MAPS = Path(__file__).resolve().parent / "static" / "maps"
+
+
+def map_urls(maps: Path = MAPS) -> dict[str, str]:
+    """The map's data, each URL carrying its file's hash from maps/SHA256SUMS.
+
+    The browser reads the basemap in byte ranges and may keep ranges of an older
+    archive under the same address: mixed with a new one they draw an empty
+    island until a reload. A new archive gets a new address instead.
+    """
+    try:
+        sums = {name: digest for digest, name in
+                (line.split(maxsplit=1) for line in (maps / "SHA256SUMS").read_text().splitlines())}
+    except FileNotFoundError:
+        sums = {}
+    return {key: f"/static/maps/{name}" + (f"?v={sums[name][:12]}" if name in sums else "")
+            for key, name in (("basemap", "basemap.pmtiles"), ("relief", "relief.geojson"))}
 
 
 def deployment_nodes(deployment: str | None, log=print) -> list[Node]:
@@ -34,6 +54,7 @@ def deployment_nodes(deployment: str | None, log=print) -> list[Node]:
 
 def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
     app = Flask(__name__)
+    maps = map_urls()
     socketio = SocketIO(app, cors_allowed_origins=cfg.allowed_origins,
                         async_mode=async_mode, logger=True, engineio_logger=True)
 
@@ -47,7 +68,7 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
     @app.route("/")
     @app.route("/map")
     def map_view():
-        return render_template("map.html")
+        return render_template("map.html", maps=maps)
 
     @app.route("/graph")
     def graph_view():
@@ -57,7 +78,7 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
     def dashboard():
         node_id = request.args.get("node", "")
         if not NODE_ID_RE.match(node_id):
-            return render_template("map.html")
+            return render_template("map.html", maps=maps)
         node = next((n for n in deployment_nodes(cfg.deployment, log) if n.node_id == node_id),
                     None)
         # Charts only for what the node carries: no environment flow, no SHT4X

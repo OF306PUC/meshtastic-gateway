@@ -22,7 +22,7 @@
     // Basemap and relief contours come from static/maps (see its fetch.sh), so the
     // map works without internet. Outside the boxes cut out there it is blank.
     protomapsL.leafletLayer({
-        url: "/static/maps/basemap.pmtiles",
+        url: {{ maps.basemap | tojson }},
         flavor: "dark",
         lang: "es",
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://protomaps.com">Protomaps</a>'
@@ -32,14 +32,15 @@
     L.control.layers(null, { "Elevation and depth": reliefLayer }).addTo(map);
     const reliefStatus = document.getElementById("relief-status");
 
-    // Land in earth tones, lighter going up; sea in blues, darker going down.
+    // Land in a muted sand, lighter going up, so the orange nodes stand out on
+    // it; sea in blues, darker going down.
     function reliefColour(m) {
-        if (m > 0) return `hsl(35, 55%, ${40 + 35 * Math.min(m / 500, 1)}%)`;
+        if (m > 0) return `hsl(45, 18%, ${42 + 33 * Math.min(m / 500, 1)}%)`;
         const t = Math.min(Math.log(-m / 100) / Math.log(20), 1);
         return `hsl(200, 80%, ${75 - 40 * t}%)`;
     }
 
-    fetch("/static/maps/relief.geojson")
+    fetch({{ maps.relief | tojson }})
         .then(r => {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             return r.json();
@@ -57,13 +58,14 @@
         .catch(e => { reliefStatus.textContent = `Relief contours unavailable: ${e.message}`; console.error(e); });
 
     const status = document.getElementById("nodes-status");
-    // Apart from the earth tones of the land contours and the blues of the sea.
+    // A node in SASIPA's orange: filled where it was measured, dashed and
+    // hollow where it is only planned.
     const css = getComputedStyle(document.documentElement);
-    const PLANNED = css.getPropertyValue("--planned").trim();
-    const PLANNED_STYLE = { radius: 9, color: PLANNED, weight: 2, dashArray: "4 3",
-                            fillColor: PLANNED, fillOpacity: 0.25 };
+    const NODE = css.getPropertyValue("--node").trim();
     const NODE_STYLE = { radius: 9, color: css.getPropertyValue("--bg").trim(), weight: 2,
-                         fillColor: css.getPropertyValue("--node").trim(), fillOpacity: 0.95 };
+                         fillColor: NODE, fillOpacity: 0.95 };
+    const PLANNED_STYLE = { radius: 9, color: NODE, weight: 2.5, dashArray: "4 3",
+                            fillColor: NODE, fillOpacity: 0.15 };
 
     // Uptime is how long the node has lived since its last boot: HH:MM:SS,
     // with hours past 24 rather than days.
@@ -155,8 +157,10 @@
                     });
                 });
 
-                if (bounds.length > 1) map.fitBounds(bounds, { padding: [50, 50] });
-                else map.setView(bounds[0], 16);
+                // No zoom animation: the basemap fetched its tiles for the frames
+                // of the animation, and the edge of the final view could stay blank.
+                if (bounds.length > 1) map.fitBounds(bounds, { padding: [50, 50], animate: false });
+                else map.setView(bounds[0], 16, { animate: false });
             })
             .catch(e => { status.textContent = `Error loading nodes: ${e.message}`; console.error(e); });
     }
