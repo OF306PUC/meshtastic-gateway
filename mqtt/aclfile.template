@@ -20,9 +20,11 @@ topic write {prefix}/#
 user telegraf
 topic read {prefix}/#
 
-# The dashboard's live feed: the telemetry it draws, nothing else. Messages
-# carry phone numbers, and the feed reaches every browser that opens the page.
+# The dashboard's live feed: the telemetry it draws and the messages. A PBX
+# message carries phone numbers: the dashboard masks them before any browser
+# sees one (G12).
 user monitor
 topic read {prefix}/+/position
 topic read {prefix}/+/device
 topic read {prefix}/+/environment
+topic read {prefix}/+/message

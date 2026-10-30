@@ -20,6 +20,54 @@ Entry format:
 
 ---
 
+## 2026-10-30 — Mensajes de texto en el dashboard
+**Time:** 11:00–12:15 (aprox)
+**User request:** "uno de los requisitos principales": un canal donde ver los
+mensajes de texto que recibe un nodo. Además, acortar la descripción del grafo
+a "SASIPA network".
+
+### Actions taken
+- Descripción: `meta.description: SASIPA network` en el `rapa-nui.yaml` de la
+  plataforma (copia idéntica aquí, sha `c14aba35…`); bajo el título del grafo
+  solo la descripción, y la radio en el tooltip de la etiqueta de la malla.
+- Hallazgos antes de cambiar: G12 dejaba los mensajes fuera del canal en vivo
+  (teléfonos del PBX) y el texto nunca se publicaba; además todo
+  `TEXT_MESSAGE_APP` se leía como trama del PBX, así que un texto de la app
+  Meshtastic (vía D1/D2) salía "malformed".
+- Decisiones del usuario: mostrar los de la app Meshtastic y los del PBX;
+  guardar el texto en InfluxDB; teléfonos enmascarados.
+- `gateway/payload.py`: `origin` (`pbx` | `meshtastic`), `text` (o
+  `content_hex` si no es UTF-8); texto de app = no es trama del PBX, UTF-8, no
+  empieza con carácter de control; `dst_id` del nodo destino, `null` en
+  difusión. Se quitó `capture_content`. El receptor también registra en la
+  terminal los textos de la app.
+- Telegraf: medición `message` (antes `pbx_message`), tag `origin`,
+  `json_string_fields = ["text", "content_hex"]` (sin eso los descarta).
+- ACL: `monitor` lee también `{prefix}/+/message`. `monitor/utils.py`:
+  `mask_phone()`/`for_browser()` (+56 •••••6789) en la API y en el canal en
+  vivo; `get_messages()` (de/para un nodo, lo más nuevo primero).
+- `gateway/deployment.py`: nombres de canal (`radio.channels`).
+- `/messages` + `/api/messages`: pestaña Messages (vista tipo canal, en vivo,
+  filtro por nodo, nombre del canal, SNR/RSSI/hop); enlace desde el dashboard
+  de cada nodo.
+- `docs/design.md`: contrato del payload de mensajes, medición `message`,
+  cuenta `monitor` y G12 reescrito ("ningún teléfono llega entero a un
+  navegador").
+
+### Outcomes
+- Consulta de mensajes probada contra un InfluxDB 1.8 local (filtro de/para,
+  texto con tildes y comillas, enmascarado). Página revisada a 911×512.
+  278/278 tests.
+
+### Next steps / open questions
+- En pi7 hay que recrear mosquitto (ACL) y telegraf, y reconstruir receptor y
+  web. Los mensajes llegan cuando las radios estén en `rapa-nui.yaml` (canal 1,
+  EasterNetM); hoy el T-Beam de pi7 sigue en el canal del banco.
+- Los mensajes viejos que hubiera en `pbx_message` quedan ahí; los nuevos van a
+  `message`.
+
+---
+
 ## 2026-10-30 — Colores y logo de SASIPA; dos fallas del mapa base
 **Time:** 10:15–10:45 (aprox)
 **User request:** el usuario agregó `monitor/static/assets/` con los logos

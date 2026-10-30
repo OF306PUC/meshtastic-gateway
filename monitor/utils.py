@@ -20,8 +20,27 @@ RX_METRICS_FIELDS  = ["rssi", "snr", "hop"]
 ALL_FIELDS         = POSITION_FIELDS + ENVIRONMENT_FIELDS + DEVICE_FIELDS + RX_METRICS_FIELDS
 
 
+MESSAGE_MEASUREMENT = "message"
+
+
 class DatabaseError(RuntimeError):
     """A query that could not run. The API answers 503, never an empty 200."""
+
+
+def mask_phone(number: str | None) -> str | None:
+    """+56 •••••6789: who is talking, without the whole number (G12)."""
+    if not number:
+        return number
+    return f"+56 {'•' * max(len(number) - 4, 0)}{number[-4:]}"
+
+
+def for_browser(message: dict) -> dict:
+    """A message as a browser may see it: a PBX frame's phone numbers masked.
+    Node ids, the src_id / dst_id of an app's message, are not personal."""
+    if message.get("origin") != "pbx":
+        return dict(message)
+    return {**message, "src_id": mask_phone(message.get("src_id")),
+            "dst_id": mask_phone(message.get("dst_id"))}
 
 
 class InfluxDBConnector:
@@ -94,6 +113,18 @@ class InfluxDBConnector:
                                                "rssi": None, "snr": None})["relayed"] = row["relayed"]
         return list(links.values())
 
+    def get_messages(self, limit: int, node_id: str | None = None) -> list[dict]:
+        """The last `limit` messages, newest first, every field and tag. With
+        `node_id`, the node's own: heard from it, or addressed to it. Phone
+        numbers are whole: mask them (for_browser) before they leave for a browser."""
+        if node_id is not None and not NODE_ID_RE.match(node_id):
+            raise ValueError(f"refusing to query node_id={node_id!r}")
+        where = (f' WHERE ("node_id"=\'{node_id}\' OR "dst_id"=\'{node_id}\')'
+                 if node_id else "")
+        q = (f'SELECT * FROM "{MESSAGE_MEASUREMENT}"{where} '
+             f'ORDER BY time DESC LIMIT {min(int(limit), 5000)}')
+        return self._points(q)
+
     def get_recent(self, node_id: str, field: str, limit: int) -> list[dict]:
         """The last `limit` points of one field on one node, oldest first."""
         if not NODE_ID_RE.match(node_id) or field not in ALL_FIELDS:
@@ -144,9 +175,12 @@ class MQTTConnector:
             print(f"[MQTT] bad JSON on {msg.topic}: {e}")
             return
 
-        payload["_topic"] = msg.topic
         parts = msg.topic.split("/")
-        payload["_type"] = parts[-1] if len(parts) >= 3 else "unknown"
+        kind = parts[-1] if len(parts) >= 3 else "unknown"
+        if kind == "message":
+            payload = for_browser(payload)
+        payload["_topic"] = msg.topic
+        payload["_type"] = kind
 
         print(f"[MQTT] {msg.topic} | "
               f"node={payload.get('node_id')} "

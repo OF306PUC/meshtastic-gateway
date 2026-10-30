@@ -241,11 +241,16 @@ class TestPbxMessageFrame(unittest.TestCase):
     def test_no_seq_field_is_published(self):
         self.assertNotIn("seq", _message(pk.private_packet(pk.pbx_frame())))
 
-    def test_content_is_opt_in(self):
-        """Message bodies are real phone traffic, and the stream is persisted."""
-        packet = pk.private_packet(pk.pbx_frame())
-        self.assertNotIn("content_hex", _message(packet))
-        self.assertEqual(_message(packet, capture_content=True)["content_hex"], b"hello".hex())
+    def test_the_text_is_published(self):
+        """User, 2026-10-30: the dashboard shows it and InfluxDB keeps it."""
+        payload = _message(pk.private_packet(pk.pbx_frame(content="¿llegó?".encode())))
+        self.assertEqual((payload["origin"], payload["text"]), ("pbx", "¿llegó?"))
+        self.assertNotIn("content_hex", payload)
+
+    def test_content_that_is_not_utf8_goes_as_hex(self):
+        payload = _message(pk.private_packet(pk.pbx_frame(content=b"\xff\xfe")))
+        self.assertEqual(payload["content_hex"], "fffe")
+        self.assertNotIn("text", payload)
 
     def test_messages_carry_no_pdr_fields_and_no_device_ts(self):
         """Phone traffic is aperiodic: there is no cadence to measure against."""
@@ -256,6 +261,32 @@ class TestPbxMessageFrame(unittest.TestCase):
     def test_a_non_pbx_portnum_fails_loudly(self):
         with self.assertRaises(ValueError):
             _message(pk.env_packet())
+
+
+class TestAppMessage(unittest.TestCase):
+    """TEXT_MESSAGE_APP typed in a Meshtastic app: plain text, between nodes.
+
+    Read as a PBX frame, its first letters were a version byte and a phone
+    number, and every such message came out "malformed".
+    """
+
+    def test_a_broadcast_text_between_nodes(self):
+        payload = _message(pk.app_text_packet("hola a todos"))
+        self.assertEqual(payload["origin"], "meshtastic")
+        self.assertEqual((payload["src_id"], payload["dst_id"]), (pk.KNOWN_NODE_ID, None))
+        self.assertEqual((payload["text"], payload["malformed"]), ("hola a todos", 0))
+        self.assertNotIn("fw_ver", payload)
+
+    def test_a_direct_message_names_its_node(self):
+        payload = _message(pk.app_text_packet("¿me oyes?", to_id="!11223344"))
+        self.assertEqual(payload["dst_id"], "!11223344")
+
+    def test_a_frame_of_an_unknown_version_is_not_shown_as_text(self):
+        """A control character first is a damaged or future PBX frame, never a text."""
+        frame = struct.pack(">BI", 0x02, pk.SRC_PHONE) + b"hello"
+        payload = _message(pk.text_packet(frame))
+        self.assertEqual(payload["malformed"], 1)
+        self.assertNotIn("text", payload)
 
 
 class TestBroadcastMessageFrame(unittest.TestCase):

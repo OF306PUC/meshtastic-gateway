@@ -313,8 +313,8 @@ por `sweep()` van al topic nuevo `.../pdr` con `"source": "sweep"`.
   el docstring por si aparece en campo.
 
 - **Los mensajes del PBX no aportan PDR.** No tienen cadencia contra la cual
-  medir. Se capturan y publican (metadata; el contenido sólo con
-  `capture_content=True`), y el PDR a nivel mensaje queda pendiente de que el
+  medir. Se capturan y publican con su texto (decisión del usuario,
+  2026-10-30), y el PDR a nivel mensaje queda pendiente de que el
   firmware del PBX emita el contador `seq`. El parser (`gateway/payload.py`)
   rechaza toda VERSION distinta de 1, así que un v2 con `seq` se reporta como
   `malformed` en vez de leerse mal; no existe un flag `FRAME_HAS_SEQ`.

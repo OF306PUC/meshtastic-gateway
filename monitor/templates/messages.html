@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% block nav_messages %}active{% endblock %}
+
+{% block head %}
+<style>
+  .msg-page { display: flex; flex-direction: column; height: calc(100vh - 46px); }
+  .msg-header {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      padding: 10px 20px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+  }
+  .msg-header h2 { margin: 0; font-size: 18px; color: var(--text); }
+  .msg-header label { font-size: 13px; color: var(--muted); }
+  .msg-header select {
+      background: var(--panel-2); color: var(--text);
+      border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px;
+  }
+  .msg-header .count { color: var(--muted); font-size: 13px; }
+  .msg-header .msg-error { color: var(--danger); font-size: 13px; }
+  .msg-header .ws-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--faint); margin-left: auto; transition: background .4s;
+  }
+  .msg-header .ws-dot.live { background: var(--accent); }
+
+  .msg-list { flex: 1; overflow-y: auto; padding: 14px 20px; }
+  .msg-empty { color: var(--muted); font-size: 14px; }
+  .msg {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-bottom: 10px;
+      max-width: 900px;
+  }
+  .msg.new { border-color: var(--accent); }
+  .msg-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 13px; }
+  .msg-route { font-weight: 600; color: var(--text); }
+  .msg-time { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .badge {
+      font-size: 11px; padding: 1px 7px; border-radius: 9px;
+      border: 1px solid var(--border); color: var(--muted);
+  }
+  .badge.meshtastic { color: var(--accent); border-color: var(--accent); }
+  .badge.pbx { color: var(--node); border-color: var(--node); }
+  .msg-text { margin: 6px 0 4px; font-size: 15px; white-space: pre-wrap; word-break: break-word; }
+  .msg-text.odd { color: var(--muted); font-family: monospace; font-size: 13px; }
+  .msg-meta { font-size: 11px; color: var(--faint); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="msg-page">
+    <div class="msg-header">
+        <h2>💬 Messages</h2>
+        <label>Node
+            <select id="node">
+                <option value="">all nodes</option>
+                {% for n in nodes %}
+                <option value="{{ n.node_id }}" {% if n.node_id == node_id %}selected{% endif %}>{{ n.name }} · {{ n.node_id }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <span class="count" id="count"></span>
+        <span class="msg-error" id="msg-error"></span>
+        <div class="ws-dot" id="ws-dot" title="WebSocket status"></div>
+    </div>
+    <div class="msg-list" id="msg-list"><div class="msg-empty">Loading…</div></div>
+</div>
+
+<script>
+(function () {
+    "use strict";
+
+    // Names for node ids and channel indexes, from the deployment file.
+    const NAMES = Object.fromEntries({{ nodes | tojson }}.map(n => [n.node_id, n.name]));
+    const CHANNELS = {{ channels | tojson }};
+    const MAX_SHOWN = 500;
+
+    const list = document.getElementById("msg-list");
+    const count = document.getElementById("count");
+    const error = document.getElementById("msg-error");
+    const select = document.getElementById("node");
+    const seen = new Set();
+    let shown = 0;
+
+    const nodeName = id => id ? (NAMES[id] ? `${NAMES[id]}` : id) : "broadcast";
+
+    function fmtWhen(ms) {
+        return new Date(ms).toLocaleString([], { month: "2-digit", day: "2-digit",
+            hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+
+    function span(cls, text) {
+        const e = document.createElement("span");
+        if (cls) e.className = cls;
+        e.textContent = text;
+        return e;
+    }
+
+    // Who wrote to whom. An app's message goes between nodes; a PBX frame
+    // between phones (masked by the server), carried by a mesh node.
+    function route(m) {
+        if (m.origin === "meshtastic") return `${nodeName(m.src_id)} → ${nodeName(m.dst_id)}`;
+        if (m.origin === "pbx") return `${m.src_id} → ${m.dst_id || "broadcast"} · via ${m.node_label}`;
+        return `from ${m.node_label}`;
+    }
+
+    function render(m, live) {
+        const key = `${m.node_id}:${m.pkt_id}`;
+        if (seen.has(key)) return null;
+        seen.add(key);
+
+        const item = document.createElement("div");
+        item.className = "msg" + (live ? " new" : "");
+        const top = document.createElement("div");
+        top.className = "msg-top";
+        const origin = m.origin || "malformed";
+        top.append(span(`badge ${origin}`, origin === "meshtastic" ? "Meshtastic" : origin === "pbx" ? "PBX" : "malformed"));
+        const ch = m.channel !== undefined && m.channel !== null ? String(m.channel) : null;
+        if (ch !== null) top.append(span("badge", CHANNELS[ch] || `ch ${ch}`));
+        top.append(span("msg-route", route(m)));
+        top.append(span("msg-time", fmtWhen(m.time ? Date.parse(m.time) : m.received_at * 1000)));
+
+        const body = document.createElement("div");
+        if (m.text !== undefined && m.text !== null) {
+            body.className = "msg-text";
+            body.textContent = m.text;
+        } else {
+            body.className = "msg-text odd";
+            body.textContent = m.content_hex ? `not UTF-8: ${m.content_hex}`
+                : Number(m.malformed) === 1 ? `malformed frame, ${m.payload_len} bytes` : "(empty)";
+        }
+
+        const meta = document.createElement("div");
+        meta.className = "msg-meta";
+        const parts = [];
+        if (m.snr !== undefined && m.snr !== null) parts.push(`SNR ${Number(m.snr).toFixed(1)} dB`);
+        if (m.rssi !== undefined && m.rssi !== null) parts.push(`RSSI ${m.rssi} dBm`);
+        if (m.hop !== undefined && m.hop !== null) parts.push(`hop ${m.hop}`);
+        parts.push(m.portnum);
+        meta.textContent = parts.join(" · ");
+
+        item.append(top, body, meta);
+        return item;
+    }
+
+    function setCount() {
+        count.textContent = shown ? `${shown} message(s)` : "";
+    }
+
+    function load() {
+        const node = select.value;
+        list.replaceChildren(Object.assign(document.createElement("div"),
+                                           { className: "msg-empty", textContent: "Loading…" }));
+        seen.clear();
+        shown = 0;
+        fetch(`/api/messages?limit=${MAX_SHOWN}` + (node ? `&node=${encodeURIComponent(node)}` : ""))
+            .then(async r => {
+                const body = await r.json();
+                // A failed query is an error to show, not a quiet channel.
+                if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+                return body;
+            })
+            .then(messages => {
+                error.textContent = "";
+                list.replaceChildren();
+                messages.forEach(m => { const e = render(m, false); if (e) { list.append(e); shown++; } });
+                if (!shown) list.append(Object.assign(document.createElement("div"),
+                    { className: "msg-empty", textContent: "No messages yet." }));
+                setCount();
+            })
+            .catch(e => {
+                list.replaceChildren();
+                error.textContent = `Messages unavailable: ${e.message}`;
+                console.error(e);
+            });
+    }
+
+    select.addEventListener("change", () => {
+        const url = new URL(window.location.href);
+        if (select.value) url.searchParams.set("node", select.value);
+        else url.searchParams.delete("node");
+        window.history.replaceState(null, "", url);
+        load();
+    });
+
+    // ── Live: new messages on top ────────────────────────────────────
+    const socket = io({ transports: ["websocket", "polling"] });
+    const dot = document.getElementById("ws-dot");
+    socket.on("connect",    () => dot.classList.add("live"));
+    socket.on("disconnect", () => dot.classList.remove("live"));
+    socket.on("mqtt_message", (m) => {
+        if (m._type !== "message") return;
+        const node = select.value;
+        if (node && m.node_id !== node && m.dst_id !== node) return;
+        const e = render(m, true);
+        if (!e) return;
+        const empty = list.querySelector(".msg-empty");
+        if (empty) empty.remove();
+        list.prepend(e);
+        shown++;
+        while (list.children.length > MAX_SHOWN) list.lastElementChild.remove();
+        setCount();
+    });
+
+    load();
+})();
+</script>
+{% endblock %}

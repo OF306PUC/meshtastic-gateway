@@ -66,7 +66,7 @@
 meta:
   deployment: rapa-nui           # must match the file name: one name per deployment
   kind: field
-  description: SASIPA water-network PoC, Rapa Nui — node sites to be defined
+  description: SASIPA network
   firmware_target: "2.7.26"      # has the 0x8B5 RX-sensitivity patch; 2.7.19 does not
 
 radio:

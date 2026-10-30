@@ -1,5 +1,6 @@
-"""The dashboard's pages and JSON API: / and /map, /graph, /dashboard,
-/api/nodes, /api/links and /api/recent/<node_id>/<field>.
+"""The dashboard's pages and JSON API: / and /map, /graph, /messages,
+/dashboard, /api/nodes, /api/links, /api/messages and
+/api/recent/<node_id>/<field>.
 
 A query that fails answers 503 with the reason; it never answers an empty list,
 which the map would show as "no nodes yet".
@@ -13,7 +14,7 @@ from flask_socketio import SocketIO
 
 from gateway.deployment import Deployment, DeploymentError, Node, load
 from monitor.param import TOTAL_SAMPLES_48HRS, Config
-from monitor.utils import ALL_FIELDS, NODE_ID_RE, DatabaseError
+from monitor.utils import ALL_FIELDS, NODE_ID_RE, DatabaseError, for_browser
 
 __all__ = ["create_app", "current_deployment", "deployment_nodes", "map_urls", "mesh_summary"]
 
@@ -91,6 +92,16 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
     def graph_view():
         return render_template("graph.html")
 
+    @app.route("/messages")
+    def messages_view():
+        node_id = request.args.get("node", "")
+        dep = current_deployment(cfg.deployment, log)
+        return render_template(
+            "messages.html", node_id=node_id if NODE_ID_RE.match(node_id) else "",
+            nodes=[{"node_id": n.node_id, "name": n.name} for n in (dep.nodes if dep else ())
+                   if n.node_id],
+            channels={str(i): name for i, name in (dep.channels.items() if dep else ())})
+
     @app.route("/dashboard")
     def dashboard():
         node_id = request.args.get("node", "")
@@ -162,6 +173,17 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
         out.extend({**link, "function": None} for link in heard.values())
         gateway = next((n.name for n in nodes if n.function == "gateway"), "Gateway")
         return jsonify({"hours": hours, "gateway": gateway, "links": out})
+
+    @app.route("/api/messages")
+    def api_messages():
+        """The last messages, newest first, as a browser may see them: a PBX
+        frame's phone numbers masked (G12). `node` keeps one node's; `limit`
+        defaults to 200, at most 1000."""
+        node_id = request.args.get("node") or None
+        if node_id is not None and not NODE_ID_RE.match(node_id):
+            return jsonify({"error": "invalid node_id"}), 400
+        limit = max(1, min(request.args.get("limit", 200, type=int), 1000))
+        return jsonify([for_browser(m) for m in db.get_messages(limit, node_id)])
 
     @app.route("/api/recent/<node_id>/<field>")
     def api_recent(node_id, field):

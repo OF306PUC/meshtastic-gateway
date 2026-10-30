@@ -58,6 +58,15 @@ def text_packet(payload: bytes, pkt_id=None):
     return pkt
 
 
+def app_text_packet(text: str, to_id=None, pkt_id=None):
+    """A message typed in a Meshtastic app: plain UTF-8, no PBX header. Broadcast
+    unless `to_id`; the library adds `text` beside the raw payload."""
+    pkt = _envelope(pkt_id, -101, -2.25, 3, 3)
+    pkt["to"], pkt["toId"] = (0xFFFFFFFF, "^all") if to_id is None else (int(to_id[1:], 16), to_id)
+    pkt["decoded"] = {"portnum": "TEXT_MESSAGE_APP", "payload": text.encode(), "text": text}
+    return pkt
+
+
 def env_packet(temp=22.5, humidity=55.0, include_humidity=True, pkt_id=None):
     metrics = {"temperature": temp}
     if include_humidity:

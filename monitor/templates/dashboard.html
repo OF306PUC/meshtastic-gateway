@@ -75,6 +75,7 @@
 <div class="dash-header">
     <a href="/map" class="back">← Map</a>
     <h2>{{ node_name or node_id }}{% if node_name %} <small>{{ node_id }}</small>{% endif %}</h2>
+    <a href="/messages?node={{ node_id | urlencode }}" class="back">💬 Messages</a>
     <span class="dash-error" id="dash-error"></span>
     <img class="client-logo" src="{{ url_for('static', filename='assets/sasipa-logo.png') }}" alt="SASIPA">
     <div class="ws-dot" id="ws-dot" title="WebSocket status"></div>

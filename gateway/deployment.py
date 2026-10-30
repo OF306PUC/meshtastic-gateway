@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -70,6 +70,7 @@ class Deployment:
     region: str | None = None
     modem_preset: str | None = None
     channel_num: int | None = None
+    channels: Mapping[int, str] = field(default_factory=dict)   # index -> name
 
     def known_nodes(self) -> dict[str, Node]:
         """{node_id: Node} for every node whose id has been recorded."""
@@ -133,6 +134,17 @@ def parse(data: Any, *, path: Path, sha256: str) -> Deployment:
             problems.append(f"{where}.{key}: must be {kind.__name__} or absent, got {value!r}")
             value = None
         described[key] = value
+    raw_channels = radio.get("channels") or []
+    channels = {}
+    if not isinstance(raw_channels, list):
+        problems.append("radio.channels: must be a list")
+        raw_channels = []
+    for i, ch in enumerate(raw_channels):
+        index, ch_name = (ch.get("index"), ch.get("name")) if isinstance(ch, dict) else (None, None)
+        if not isinstance(index, int) or isinstance(index, bool) or not isinstance(ch_name, str):
+            problems.append(f"radio.channels[{i}]: needs an int index and a str name")
+            continue
+        channels[index] = ch_name
 
     raw_nodes = data.get("nodes")
     if not isinstance(raw_nodes, list) or not raw_nodes:
@@ -151,7 +163,7 @@ def parse(data: Any, *, path: Path, sha256: str) -> Deployment:
     if problems:
         raise DeploymentError(path, problems)
     return Deployment(name=name, path=path, sha256=sha256, cadence_scale=scale,
-                      nodes=tuple(nodes), **described)
+                      nodes=tuple(nodes), channels=channels, **described)
 
 
 def _node(raw: Any, where: str, scale: int, problems: list[str]) -> Node | None:

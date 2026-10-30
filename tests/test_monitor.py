@@ -5,6 +5,7 @@ Run: .venv/bin/python -m unittest discover -s tests -t .
 import contextlib
 import hashlib
 import io
+import json
 import re
 import tempfile
 import unittest
@@ -17,7 +18,7 @@ from paho.mqtt.reasoncodes import ReasonCode
 from gateway.config import ConfigError
 from monitor.app import create_app, map_urls
 from monitor.param import from_env
-from monitor.utils import DatabaseError, InfluxDBConnector, MQTTConnector
+from monitor.utils import DatabaseError, InfluxDBConnector, MQTTConnector, for_browser, mask_phone
 
 TEST_MESH = str(Path(__file__).resolve().parent / "fixtures" / "deployments" / "test-mesh.yaml")
 ENV = {"MQTT_TOPIC_PREFIX": "testbed", "INFLUXDB_DB": "telemetry_db", "MESH_DEPLOYMENT": TEST_MESH}
@@ -25,9 +26,10 @@ N1, P1 = "!0b64122b", "!11223344"
 
 
 class _DB:
-    def __init__(self, positions=(), recent=(), fail=False, uptimes=None, links=()):
+    def __init__(self, positions=(), recent=(), fail=False, uptimes=None, links=(), messages=()):
         self.positions, self.recent, self.fail, self.calls = list(positions), list(recent), fail, []
         self.uptimes, self.links = dict(uptimes or {}), [dict(link) for link in links]
+        self.messages = [dict(m) for m in messages]
 
     def _maybe_fail(self):
         if self.fail:
@@ -51,6 +53,11 @@ class _DB:
         self._maybe_fail()
         return [dict(link) for link in self.links]
 
+    def get_messages(self, limit, node_id=None):
+        self.calls.append(("messages", limit, node_id))
+        self._maybe_fail()
+        return [dict(m) for m in self.messages]
+
 
 class MonitorCase(unittest.TestCase):
     def client(self, db, **env):
@@ -64,7 +71,7 @@ class TestParam(unittest.TestCase):
     def test_the_live_feed_and_client_follow_the_prefix(self):
         cfg = from_env(ENV)
         self.assertEqual(cfg.subscribe_topics, ["testbed/+/position", "testbed/+/device",
-                                                "testbed/+/environment"])
+                                                "testbed/+/environment", "testbed/+/message"])
         self.assertEqual(cfg.client_id, "testbed-monitor")
 
     def test_the_database_is_the_one_telegraf_writes_to(self):
@@ -179,6 +186,61 @@ class TestApiLinks(MonitorCase):
         self.assertEqual(self.client(_DB(fail=True)).get("/api/links").status_code, 503)
 
 
+PBX_MESSAGE = {"time": "2026-10-30T13:00:00Z", "node_id": P1, "node_label": "P1",
+               "origin": "pbx", "src_id": "123456789", "dst_id": "987654321",
+               "channel": "1", "text": "hola", "pkt_id": 7}
+APP_MESSAGE = {"time": "2026-10-30T13:01:00Z", "node_id": N1, "node_label": "node-1",
+               "origin": "meshtastic", "src_id": N1, "dst_id": None, "channel": "1",
+               "text": "¿llegó?", "pkt_id": 8}
+
+
+class TestMessages(MonitorCase):
+    """User, 2026-10-30: messages shown and kept; a PBX phone number reaches no
+    browser whole (G12)."""
+
+    def test_phone_numbers_are_masked_node_ids_are_not(self):
+        self.assertEqual(mask_phone("912345678"), "+56 •••••5678")
+        self.assertIsNone(mask_phone(None))
+        self.assertEqual(for_browser(APP_MESSAGE), APP_MESSAGE)
+        masked = for_browser(PBX_MESSAGE)
+        self.assertEqual((masked["src_id"], masked["dst_id"]), ("+56 •••••6789", "+56 •••••4321"))
+        self.assertEqual(PBX_MESSAGE["src_id"], "123456789", "the record itself is untouched")
+
+    def test_the_api_masks_and_keeps_the_text(self):
+        body = self.client(_DB(messages=[PBX_MESSAGE, APP_MESSAGE])).get("/api/messages").json
+        self.assertEqual([m["text"] for m in body], ["hola", "¿llegó?"])
+        self.assertNotIn("123456789", json.dumps(body))
+        self.assertEqual(body[0]["src_id"], "+56 •••••6789")
+
+    def test_one_node_and_a_bounded_limit(self):
+        db = _DB()
+        client = self.client(db)
+        client.get(f"/api/messages?node={N1}&limit=99999")
+        client.get("/api/messages")
+        self.assertEqual(db.calls, [("messages", 1000, N1), ("messages", 200, None)])
+        self.assertEqual(client.get("/api/messages?node=bad").status_code, 400)
+
+    def test_a_database_failure_is_a_503(self):
+        self.assertEqual(self.client(_DB(fail=True)).get("/api/messages").status_code, 503)
+
+    def test_the_live_feed_masks_too(self):
+        conn = MQTTConnector("localhost", client_id="t")
+        conn.socketio = mock.Mock()
+        raw = {k: v for k, v in PBX_MESSAGE.items() if k != "time"}
+        msg = mock.Mock(topic="testbed/P1/message", payload=json.dumps(raw).encode())
+        with contextlib.redirect_stdout(io.StringIO()):
+            conn._on_message(None, None, msg)
+        [(event, sent), _] = conn.socketio.emit.call_args
+        self.assertEqual((event, sent["_type"], sent["text"]), ("mqtt_message", "message", "hola"))
+        self.assertNotIn("123456789", json.dumps(sent))
+
+    def test_the_page_names_the_channels_and_nodes(self):
+        page = self.client(_DB()).get(f"/messages?node={N1}").data.decode()
+        self.assertIn('id="msg-list"', page)
+        self.assertIn('"0": "telemetry"', page)
+        self.assertIn(f'<option value="{N1}" selected>node-1 · {N1}</option>', page)
+
+
 class TestPages(MonitorCase):
     def test_pages(self):
         client = self.client(_DB())
@@ -217,11 +279,11 @@ class TestPages(MonitorCase):
         client = self.client(_DB())
         for path in ("/map", "/graph", f"/dashboard?node={N1}"):
             with self.subTest(path=path):
-                self.assertIn(b'<span class="mesh-chip" title="gateway tests">test-mesh</span>',
-                              client.get(path).data)
+                self.assertIn('<span class="mesh-chip" title="gateway tests · ANZ · MEDIUM_FAST · '
+                              'slot 45">test-mesh</span>', client.get(path).data.decode())
         graph = client.get("/graph").data.decode()
         self.assertIn("Meshtastic mesh <span>test-mesh</span>", graph)
-        self.assertIn("gateway tests · ANZ · MEDIUM_FAST · slot 45", graph)
+        self.assertIn("<p>gateway tests</p>", graph, "the description, short; the radio is in the chip")
 
     def test_without_a_deployment_the_graph_says_so(self):
         client = self.client(_DB(), MESH_DEPLOYMENT="")
@@ -237,7 +299,7 @@ class TestOfflineAssets(MonitorCase):
 
     def test_pages_load_no_script_or_style_from_the_internet(self):
         client = self.client(_DB())
-        for page in ("/map", "/graph", f"/dashboard?node={N1}"):
+        for page in ("/map", "/graph", "/messages", f"/dashboard?node={N1}"):
             refs = re.findall(r'<(?:script|link)[^>]+(?:src|href)="([^"]+)"',
                               client.get(page).data.decode())
             self.assertTrue(refs, page)

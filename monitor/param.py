@@ -16,7 +16,7 @@ from gateway.publish import topic_prefix_from_env
 __all__ = ["Config", "TOTAL_SAMPLES_48HRS", "from_env"]
 
 TOTAL_SAMPLES_48HRS = 576
-LIVE_KINDS = ("position", "device", "environment")
+LIVE_KINDS = ("position", "device", "environment", "message")
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,7 @@ class Config:
     client_id: str
     username: str
     password: str
-    subscribe_topics: list[str]        # only what the pages draw: no messages
+    subscribe_topics: list[str]        # what the pages draw: telemetry and messages
     deployment: str | None             # for surveyed positions; unset = GPS only
     allowed_origins: list[str] | None  # None: same origin only (the proxy's own address)
 
@@ -64,7 +64,7 @@ def from_env(environ: Mapping[str, str] = os.environ) -> Config:
         # This account is read-only (mqtt/aclfile.template).
         username=environ.get("MQTT_USERNAME_MONITOR") or environ.get("MQTT_USERNAME", ""),
         password=environ.get("MQTT_PASSWORD_MONITOR") or environ.get("MQTT_PASSWORD", ""),
-        # Messages carry phone numbers, and the feed reaches every browser.
+        # Messages too: their phone numbers are masked before a browser gets them.
         subscribe_topics=[f"{prefix}/+/{kind}" for kind in LIVE_KINDS],
         deployment=environ.get("MESH_DEPLOYMENT") or None,
         # Same origin works through the proxy whatever name the browser typed

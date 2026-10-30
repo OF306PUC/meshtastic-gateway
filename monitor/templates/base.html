@@ -19,9 +19,10 @@
 <body>
     <nav class="topbar">
         <span class="brand">LoRa Mesh</span>
-        {% if mesh %}<span class="mesh-chip" title="{{ mesh.description or '' }}">{{ mesh.name }}</span>{% endif %}
+        {% if mesh %}<span class="mesh-chip" title="{{ [mesh.description, mesh.radio] | select | join(' · ') }}">{{ mesh.name }}</span>{% endif %}
         <a href="/map"   class="nav-link {% block nav_map %}{% endblock %}">🗺 Map</a>
         <a href="/graph" class="nav-link {% block nav_graph %}{% endblock %}">🕸 Graph</a>
+        <a href="/messages" class="nav-link {% block nav_messages %}{% endblock %}">💬 Messages</a>
     </nav>
     <main>
         {% block content %}{% endblock %}

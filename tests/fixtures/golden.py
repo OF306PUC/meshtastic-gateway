@@ -72,10 +72,12 @@ ROUTED_MESSAGE = {
     "channel": 0,
     "src_id": "123456789",
     "dst_id": "987654321",
+    "origin": "pbx",
     "fw_ver": 1,
     "malformed": 0,
     "payload_len": 14,
     "content_len": 5,
+    "text": "hello",
     "rssi": -95,
     "snr": 3.5,
     "hop": 1,
@@ -86,6 +88,23 @@ BROADCAST_MESSAGE = {
     "portnum": "TEXT_MESSAGE_APP",
     "dst_id": None,
     "payload_len": 10,
+}
+
+APP_MESSAGE = {
+    "node_id": pk.KNOWN_NODE_ID,
+    "node_label": pk.KNOWN_NODE_LABEL,
+    "portnum": "TEXT_MESSAGE_APP",
+    "channel": 0,
+    "origin": "meshtastic",
+    "src_id": pk.KNOWN_NODE_ID,
+    "dst_id": None,
+    "malformed": 0,
+    "payload_len": 9,
+    "content_len": 9,                  # bytes, not characters: 7 of them
+    "text": "¿llegó?",
+    "rssi": -101,
+    "snr": -2.25,
+    "hop": 0,
 }
 
 MALFORMED_MESSAGE = {

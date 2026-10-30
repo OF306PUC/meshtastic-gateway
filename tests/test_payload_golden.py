@@ -54,6 +54,9 @@ class TestMessageGolden(unittest.TestCase):
         self.assertGolden(pk.text_packet(pk.broadcast_frame(), pkt_id=2002),
                           golden.BROADCAST_MESSAGE)
 
+    def test_app_text(self):
+        self.assertGolden(pk.app_text_packet("¿llegó?", pkt_id=2004), golden.APP_MESSAGE)
+
     def test_malformed(self):
         self.assertGolden(pk.private_packet(b"\x01\x02\x03", pkt_id=2003),
                           golden.MALFORMED_MESSAGE)

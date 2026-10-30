@@ -21,10 +21,10 @@ PREFIX_VAR = "${MQTT_TOPIC_PREFIX}"
 
 # docs/design.md §2.5
 MEASUREMENT = {"position": "telemetry", "device": "telemetry", "environment": "telemetry",
-               "message": "pbx_message", "pdr": "pdr"}
+               "message": "message", "pdr": "pdr"}
 TAGS = {
     "telemetry": ["node_id", "node_label"],
-    "pbx_message": ["node_id", "node_label", "portnum", "channel", "src_id", "dst_id"],
+    "message": ["node_id", "node_label", "portnum", "channel", "origin", "src_id", "dst_id"],
     "pdr": ["node_label", "flow", "source"],
 }
 
@@ -42,6 +42,11 @@ class TestTelegrafMatchesThePublisher(unittest.TestCase):
 
     def test_tags_per_measurement(self):
         self.assertEqual({i["name_override"]: i["tag_keys"] for i in self.inputs}, TAGS)
+
+    def test_the_message_text_is_kept(self):
+        """The json parser drops a string field it is not told about, silently."""
+        [inp] = [i for i in self.inputs if i["name_override"] == "message"]
+        self.assertEqual(inp["json_string_fields"], ["text", "content_hex"])
 
     def test_received_at_is_the_time_key_everywhere(self):
         for inp in self.inputs:
@@ -66,9 +71,9 @@ class TestBrokerAccounts(unittest.TestCase):
         self.assertEqual(rules, {
             "gateway": ["write {prefix}/#"],
             "telegraf": ["read {prefix}/#"],
-            # The live feed reaches every browser: telemetry only, no phone numbers.
+            # Telemetry and messages; the dashboard masks phone numbers (G12).
             "monitor": ["read {prefix}/+/position", "read {prefix}/+/device",
-                        "read {prefix}/+/environment"],
+                        "read {prefix}/+/environment", "read {prefix}/+/message"],
         })
 
 

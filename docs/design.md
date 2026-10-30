@@ -60,7 +60,7 @@ names were captured from the running monorepo code, and the golden tests
 | `environment` | `node_id, node_label, temperature, humidity, rssi, snr, hop, channel, device_ts, received_at` |
 | `device` | `node_id, node_label, battery_level, voltage, channel_util, air_util_tx, uptime_seconds, rssi, snr, hop, channel, device_ts, received_at` |
 | `position` | `node_id, node_label, latitude, longitude, altitude, rssi, snr, hop, channel, device_ts, received_at` |
-| `message` | `node_id, node_label, portnum, pkt_id, src_id, dst_id, fw_ver, content_len, payload_len, malformed, rssi, snr, hop, channel, received_at` |
+| `message` | `node_id, node_label, portnum, pkt_id, origin, src_id, dst_id, fw_ver, content_len, payload_len, malformed, text` or `content_hex`, `rssi, snr, hop, channel, received_at` |
 | PDR, on the three telemetry payloads and the `pdr` topic | `pdr, pdr_window, pdr_window_slots, pdr_window_filled, rx_count, missed_est, missed_now, early_count, cadence_violated, gap_s` (the `pdr` topic adds `node_label, flow, source`) |
 
 The field is **`humidity`**, not the protobuf's `relativeHumidity`.
@@ -72,13 +72,19 @@ A message is shaped differently, on purpose:
 | No `device_ts` | A message has no device timestamp, only `received_at` |
 | No PDR fields | Phone traffic is aperiodic: there is no cadence to measure against |
 | `pkt_id` present | The only handle for joining a transmit record to a receive record |
-| `src_id` / `dst_id` are strings | Phone numbers without country code, a big-endian uint32 on the wire, in decimal: `"123456789"` logs as `+56123456789` |
+| `origin` says what the ids are | `pbx`: a PBX frame between phones. `meshtastic`: a text typed in a Meshtastic app (a phone on an access node), between nodes |
+| `src_id` / `dst_id` are strings | `pbx`: phone numbers without country code, a big-endian uint32 on the wire, in decimal: `"123456789"` logs as `+56123456789`. `meshtastic`: node ids |
 | `dst_id` is `null` on broadcast, not absent | It is a Telegraf tag; omission would change the series (G3b) |
 | `malformed` is `0` or `1` | An integer boolean (2.2) |
-| `content_len` ≠ `payload_len` | The text vs the whole LoRa payload, frame header included: 9 bytes routed (`PRIVATE_APP`), 5 broadcast (`TEXT_MESSAGE_APP`) |
+| `content_len` ≠ `payload_len` | The text vs the whole LoRa payload, frame header included: 9 bytes routed (`PRIVATE_APP`), 5 broadcast (`TEXT_MESSAGE_APP`); equal for an app's message, which has no header. Bytes, not characters |
+| `text` or `content_hex` | The content as UTF-8, or in hex when it is not UTF-8 |
 
-The text of a message is logged to the receiver's terminal (`[MSG]` lines,
-control characters escaped) and never published unless `capture_content`.
+**The text is published, stored and shown** (user, 2026-10-30): the dashboard
+has a Messages page, and InfluxDB keeps every message. It is also logged to the
+receiver's terminal (`[MSG]` lines, control characters escaped). A
+`TEXT_MESSAGE_APP` is a PBX frame when it parses as one; otherwise it is an
+app's message if it is UTF-8 that does not start with a control character (a
+PBX frame starts with its version byte); anything else is `malformed`.
 
 ### 2.2 Two rules that look like bugs and are not
 
@@ -127,7 +133,7 @@ consumes it (G4).
 | Measurement | From topics | Tags |
 |---|---|---|
 | `telemetry` | `position`, `device`, `environment` | `node_id`, `node_label` |
-| `pbx_message` | `message` | `node_id`, `node_label`, `portnum`, `channel`, `src_id`, `dst_id` |
+| `message` | `message` | `node_id`, `node_label`, `portnum`, `channel`, `origin`, `src_id`, `dst_id` (fields include the string `text`/`content_hex`: `json_string_fields`, or Telegraf drops them) |
 | `pdr` | `pdr` | `node_label`, `flow`, `source` |
 
 Tags are not fields: a tag is an indexed dimension, and promoting a field to a
@@ -142,7 +148,7 @@ The layout is drawn in [`diagrams/port-architecture.png`](diagrams/port-architec
 |---|---|
 | MQTT `gateway` | write `{prefix}/#` |
 | MQTT `telegraf` | read `{prefix}/#` |
-| MQTT `monitor` | read `{prefix}/+/position`, `device`, `environment` only: messages hold phone numbers, and the live feed reaches every browser (G12) |
+| MQTT `monitor` | read `{prefix}/+/position`, `device`, `environment`, `message`: the dashboard masks a PBX frame's phone numbers before any browser sees them (G12) |
 | InfluxDB write account | Telegraf's writes |
 | InfluxDB read account | the dashboard and `tools/plot_history.py` |
 | InfluxDB admin | maintenance only |
@@ -234,7 +240,7 @@ for flow in decoded.flows:                      # 'device' | 'environment' | 'po
 | G9 | No secrets in git; each container gets only its own credentials | `.gitignore`; `TestCredentialsPerService` |
 | G10 | Each deployment file identical to the platform's copy | Same SHA-256; the receiver prints it at start and warns on unknown senders, undeclared flows and `cadence_violated` |
 | G11 | InfluxDB requires authentication; least-privilege accounts | `TestHardening` |
-| G12 | The live feed carries telemetry only, never messages | `TestHardening`, `test_acl_rules` |
+| G12 | No phone number reaches a browser whole: `for_browser()` masks a PBX frame's ids in the API and the live feed (+56 •••••6789) | `TestMessages`, `test_acl_rules` |
 | G13 | Only the proxy is reachable from the network, behind a login | `TestHardening` |
 
 > **This system's failure mode is silence**: containers up, dashboard
@@ -253,8 +259,9 @@ for flow in decoded.flows:                      # 'device' | 'environment' | 'po
   over-the-air loss.
 - **Where the PBX radio belongs is deferred.** The platform now has a `pbx`
   function and configures only that radio's mesh membership; its link to the
-  PBX belongs to the PBX project. The gateway keeps `pbx_message` (the frames
-  it hears) and does not provision PBX radios.
+  PBX belongs to the PBX project. The gateway keeps the PBX frames it hears in
+  `message` (until 2026-10-30, the `pbx_message` measurement) and does not
+  provision PBX radios.
 - **The offline map covers two boxes** (2026-10-29): San Joaquín and Rapa Nui,
   cut into `monitor/static/maps/` by its `fetch.sh` (an OpenStreetMap basemap
   from Protomaps; GEBCO 2020 elevation and depth contours within some 10 km of

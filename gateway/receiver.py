@@ -14,7 +14,8 @@ from typing import Callable, Mapping
 
 from gateway.decode import DecodeStats, DecodedPacket, decode
 from gateway.deployment import Node
-from gateway.payload import MESSAGE_PORTNUMS, pbx_frame, to_message_payload, to_payload
+from gateway.payload import (MESSAGE_PORTNUMS, destination, meshtastic_text, pbx_frame,
+                             to_message_payload, to_payload)
 from gateway.pdr import CadencePdrTracker
 from gateway.publish import topic_for
 
@@ -38,7 +39,7 @@ def _shown(content: bytes) -> str:
 class Receiver:
     def __init__(self, publisher, nodes: Mapping[str, Node], *,
                  pdr_window_sec: Mapping[str, int], my_id: str | None = None,
-                 my_num: int | None = None, capture_content: bool = False,
+                 my_num: int | None = None,
                  settle_sec: float = 0.0,
                  wall: Callable[[], float] = time.time,
                  mono: Callable[[], float] = time.monotonic,
@@ -57,7 +58,6 @@ class Receiver:
         self.nodes = dict(nodes)
         self.pdr_window_sec = dict(pdr_window_sec)
         self.my_id, self.my_num = my_id, my_num
-        self.capture_content = capture_content
         self.wall, self.mono, self.log = wall, mono, log
 
         self.tracker = CadencePdrTracker()
@@ -113,8 +113,7 @@ class Receiver:
         sent = False
         if d.portnum in MESSAGE_PORTNUMS:
             self._log_message(d, node)
-            self._publish(node.name, "message", to_message_payload(
-                d, node.name, received_at, capture_content=self.capture_content))
+            self._publish(node.name, "message", to_message_payload(d, node.name, received_at))
             sent = True
         for flow in d.flows:
             if flow == "device":               # before scoring: a reboot is not a loss
@@ -143,16 +142,20 @@ class Receiver:
                           held_device_ts=self._last_device_ts.get(hold_key))
 
     def _log_message(self, d: DecodedPacket, node: Node):
-        """The message and its text on the terminal. The text is never published
-        unless capture_content: these are real people's messages."""
+        """The message and its text on the terminal, as published: a PBX frame
+        between phone numbers, or a Meshtastic app's text between nodes."""
         via = (f"via {node.name} ({d.portnum}, ch {d.channel}, hop {d.hops_taken}, "
                f"rssi {d.rx_rssi}, snr {d.rx_snr})")
         frame = pbx_frame(d)
-        if frame is None:
-            self.log(f"[MSG] malformed frame {via}: {d.payload_len or 0} B")
-        else:
+        text = meshtastic_text(d) if frame is None else None
+        if frame is not None:
             self.log(f"[MSG] {frame['src_id']} -> {frame['dst_id'] or 'broadcast'} {via}: "
                      f"{_shown(frame['content'])}")
+        elif text is not None:
+            self.log(f"[MSG] {d.from_id} -> {destination(d) or 'broadcast'} {via}: "
+                     f"{_shown(text.encode())}")
+        else:
+            self.log(f"[MSG] malformed frame {via}: {d.payload_len or 0} B")
 
     def _publish(self, label: str, kind: str, payload: dict):
         self.publisher.publish_payload(label, kind, payload)

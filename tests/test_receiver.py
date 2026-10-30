@@ -250,9 +250,16 @@ class TestMessageLog(ReceiverCase):
                      pk.private_packet(pk.pbx_frame(), pkt_id=shared))
         self.assertEqual(len(self.messages()), 1)
 
-    def test_the_text_is_still_not_published(self):
-        self.receive(pk.private_packet(pk.pbx_frame(content=b"secret")))
-        self.assertNotIn("secret", json.dumps(self.sent("message")))
+    def test_the_text_is_published_too(self):
+        """User, 2026-10-30: the dashboard shows the messages and InfluxDB keeps them."""
+        self.receive(pk.private_packet(pk.pbx_frame(content=b"hola")))
+        self.assertEqual(self.sent("message")[0]["text"], "hola")
+
+    def test_an_app_message_is_logged_between_nodes(self):
+        self.receive(pk.app_text_packet("hola a todos"))
+        [line] = self.messages()
+        self.assertIn(f"{pk.KNOWN_NODE_ID} -> broadcast via node-1 (TEXT_MESSAGE_APP", line)
+        self.assertTrue(line.endswith(': "hola a todos"'), line)
 
 
 class TestStartupSettling(ReceiverCase):

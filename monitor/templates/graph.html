@@ -57,7 +57,7 @@
         <header class="graph-title">
             {% if mesh %}
             <h2>Meshtastic mesh <span>{{ mesh.name }}</span></h2>
-            <p>{{ mesh.description or "" }}{% if mesh.description and mesh.radio %} · {% endif %}{{ mesh.radio }}</p>
+            {% if mesh.description %}<p>{{ mesh.description }}</p>{% endif %}
             {% else %}
             <h2>Meshtastic mesh</h2>
             <p>No deployment configured (MESH_DEPLOYMENT): only the nodes the gateway heard are drawn.</p>
