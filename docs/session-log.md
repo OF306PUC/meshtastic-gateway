@@ -20,6 +20,34 @@ Entry format:
 
 ---
 
+## 2026-10-30 — Preparación de la prueba local de rapa-nui en la oficina
+**Time:** 12:30–13:00 (aprox)
+**User request:** probar rapa-nui en la oficina con el yaml actualizado de la
+plataforma (revisarlo y traerlo), el punto de acceso de pi7 y 5 nodos: N3
+(`!32fe0d4e`) sigue en el campus y no transmitirá.
+
+### Actions taken
+- Revisado el `rapa-nui.yaml` de la plataforma (commit `52ed4dd`): fibra de
+  vidrio en N2, N5 y N6; `tx_power_policy: declared`, que acepta los 30 dBm con
+  advertencias (el firmware los recorta a 22). `validate` ✓. Copiado aquí
+  (sha `c7475ffd…`); el gateway lo lee (ignora `tx_power_policy`).
+- Comprobado: el receptor solo mide la entrega de un flujo ya oído, así que N3
+  no genera pérdidas ni alarmas; el `.env` de la plataforma tiene
+  `EASTERNET_TELEMETRY_PSK` y `EASTERNET_MSG_PSK` (solo nombres).
+- Mapa: si los sitios no caben en una vista (un nodo con GPS en la oficina y el
+  resto planificados en la isla), muestra donde está la mayoría y avisa cuántos
+  quedan fuera; antes se centraba en el océano vacío entre ambos.
+  `getBoundsZoom` no sirve para detectarlo: recorta al zoom mínimo. Probado en
+  Chrome headless.
+
+### Next steps / open questions
+- GW, D1 y D2 sin `node_id`: el receptor avisará que la radio de pi7 no está en
+  el archivo (inofensivo). Un mensaje desde un nodo sin `node_id` se descarta
+  como remitente desconocido: para probar mensajes, desde un nodo registrado o
+  con el ID de D1 en el yaml.
+
+---
+
 ## 2026-10-30 — Mensajes de texto en el dashboard
 **Time:** 11:00–12:15 (aprox)
 **User request:** "uno de los requisitos principales": un canal donde ver los

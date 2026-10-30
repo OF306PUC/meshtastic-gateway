@@ -60,8 +60,9 @@
 #             — that difference is the only check that a node was installed
 #             where the file says it was. A gap in the position flow is only
 #             announced after 1.5 x 3600 s, by design: it is the sparse flow.
-# N6 is fiberglass (decided). The antenna and sensor of N1–N5 are PROVISIONAL:
-# confirm them when each physical unit is labelled.
+# The three fiberglass antennas go to N2, N5 and N6 (user, 2026-10-30); N1, N3
+# and N4 take the SenseCAP stock rubber. The sensor assignment of N1–N5 is
+# PROVISIONAL: confirm it when each physical unit is labelled.
 
 meta:
   deployment: rapa-nui           # must match the file name: one name per deployment
@@ -80,6 +81,11 @@ radio:
     - {index: 0, name: EasterNetT, psk_env: EASTERNET_TELEMETRY_PSK}   # telemetry
     - {index: 1, name: EasterNetM, psk_env: EASTERNET_MSG_PSK}         # messaging
   rebroadcast_mode: LOCAL_ONLY
+  # The file's tx_power is written as it stands instead of being derived from
+  # antenna gain + cap + chip (user, 2026-10-30). The SX1262 tops out at 22 dBm,
+  # so the firmware clamps the 30 dBm below to 22 and `inspect` will report that
+  # difference on every run: that report is the point, not a defect.
+  tx_power_policy: declared
   position_precision: 32         # full precision: the sender masks the rest away for good
   rx_boosted_gain: true
   # Chile, SUBTEL Res. Ex. 1.985/2017 (Norma Técnica de Equipos de Alcance
@@ -102,11 +108,11 @@ nodes:
     role: CLIENT                 # once sites are known, the highest/farthest node may take CLIENT_BASE (plan §2.6)
     hop_limit: 3
     antenna:
-      type: fiberglass
-      gain_dbi: 5.8
+      type: rubber
+      gain_dbi: 2.0
       band_mhz: [902, 928]
-      model: null
-      connector_loss_db: null    # measured; null = not measured yet
+      model: SenseCAP stock
+      connector_loss_db: null
     tx_power_dbm: 30             # DERIVED, not chosen: `python configure.py show` prints it
     site:
       name: null
@@ -214,11 +220,11 @@ nodes:
     role: CLIENT
     hop_limit: 3
     antenna:
-      type: rubber
-      gain_dbi: 2.0
+      type: fiberglass
+      gain_dbi: 5.8
       band_mhz: [902, 928]
-      model: SenseCAP stock
-      connector_loss_db: null
+      model: null
+      connector_loss_db: null    # measured; null = not measured yet
     tx_power_dbm: 30
     site:
       name: null

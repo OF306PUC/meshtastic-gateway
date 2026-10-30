@@ -157,10 +157,29 @@
                     });
                 });
 
+                // Sites too far apart for one view the basemap covers (a node's GPS
+                // at the office, the rest planned on the island) would centre the
+                // map on the empty ocean between them: show where most of them are.
+                // (getBoundsZoom cannot tell: it clamps to the minimum zoom.)
+                const fits = points => {
+                    const box = L.latLngBounds(points), z = map.getMinZoom();
+                    const span = map.project(box.getSouthEast(), z).subtract(map.project(box.getNorthWest(), z));
+                    return span.x <= map.getSize().x - 100 && span.y <= map.getSize().y - 100;
+                };
+                let view = bounds;
+                if (!fits(bounds)) {
+                    const cells = new Map();
+                    bounds.forEach(b => {
+                        const key = `${Math.round(b[0])},${Math.round(b[1])}`;
+                        cells.set(key, [...(cells.get(key) || []), b]);
+                    });
+                    view = [...cells.values()].sort((x, y) => y.length - x.length)[0];
+                    status.textContent += ` ${bounds.length - view.length} site(s) are elsewhere, out of this view.`;
+                }
                 // No zoom animation: the basemap fetched its tiles for the frames
                 // of the animation, and the edge of the final view could stay blank.
-                if (bounds.length > 1) map.fitBounds(bounds, { padding: [50, 50], animate: false });
-                else map.setView(bounds[0], 16, { animate: false });
+                if (view.length > 1) map.fitBounds(view, { padding: [50, 50], animate: false });
+                else map.setView(view[0], 16, { animate: false });
             })
             .catch(e => { status.textContent = `Error loading nodes: ${e.message}`; console.error(e); });
     }
