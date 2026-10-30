@@ -213,6 +213,21 @@ class TestPages(MonitorCase):
         self.assertIn(b"<title>LoRa Mesh</title>", page)
         self.assertNotIn(b"Testbed", page)
 
+    def test_every_page_names_its_mesh(self):
+        client = self.client(_DB())
+        for path in ("/map", "/graph", f"/dashboard?node={N1}"):
+            with self.subTest(path=path):
+                self.assertIn(b'<span class="mesh-chip" title="gateway tests">test-mesh</span>',
+                              client.get(path).data)
+        graph = client.get("/graph").data.decode()
+        self.assertIn("Meshtastic mesh <span>test-mesh</span>", graph)
+        self.assertIn("gateway tests · ANZ · MEDIUM_FAST · slot 45", graph)
+
+    def test_without_a_deployment_the_graph_says_so(self):
+        client = self.client(_DB(), MESH_DEPLOYMENT="")
+        self.assertNotIn(b"mesh-chip", client.get("/map").data)
+        self.assertIn(b"No deployment configured", client.get("/graph").data)
+
 
 class TestOfflineAssets(MonitorCase):
     """The dashboard must work in the field, without internet, map included."""

@@ -64,6 +64,12 @@ class Deployment:
     sha256: str
     cadence_scale: int
     nodes: tuple[Node, ...]
+    # Which mesh this is, for the dashboard to say so: meta.description and the
+    # radio block's region, preset and slot.
+    description: str | None = None
+    region: str | None = None
+    modem_preset: str | None = None
+    channel_num: int | None = None
 
     def known_nodes(self) -> dict[str, Node]:
         """{node_id: Node} for every node whose id has been recorded."""
@@ -116,6 +122,17 @@ def parse(data: Any, *, path: Path, sha256: str) -> Deployment:
     if not isinstance(scale, int) or isinstance(scale, bool) or scale < 1:
         problems.append(f"meta.cadence_scale: must be an int >= 1, got {scale!r}")
         scale = 1
+    radio = data.get("radio") if isinstance(data.get("radio"), dict) else {}
+    described = {}
+    for where, block, key, kind in (("meta", meta, "description", str),
+                                    ("radio", radio, "region", str),
+                                    ("radio", radio, "modem_preset", str),
+                                    ("radio", radio, "channel_num", int)):
+        value = block.get(key)
+        if value is not None and (not isinstance(value, kind) or isinstance(value, bool)):
+            problems.append(f"{where}.{key}: must be {kind.__name__} or absent, got {value!r}")
+            value = None
+        described[key] = value
 
     raw_nodes = data.get("nodes")
     if not isinstance(raw_nodes, list) or not raw_nodes:
@@ -134,7 +151,7 @@ def parse(data: Any, *, path: Path, sha256: str) -> Deployment:
     if problems:
         raise DeploymentError(path, problems)
     return Deployment(name=name, path=path, sha256=sha256, cadence_scale=scale,
-                      nodes=tuple(nodes))
+                      nodes=tuple(nodes), **described)
 
 
 def _node(raw: Any, where: str, scale: int, problems: list[str]) -> Node | None:

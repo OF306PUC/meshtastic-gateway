@@ -11,11 +11,11 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO
 
-from gateway.deployment import DeploymentError, Node, load
+from gateway.deployment import Deployment, DeploymentError, Node, load
 from monitor.param import TOTAL_SAMPLES_48HRS, Config
 from monitor.utils import ALL_FIELDS, NODE_ID_RE, DatabaseError
 
-__all__ = ["create_app", "deployment_nodes", "map_urls"]
+__all__ = ["create_app", "current_deployment", "deployment_nodes", "map_urls", "mesh_summary"]
 
 MAPS = Path(__file__).resolve().parent / "static" / "maps"
 
@@ -36,25 +36,42 @@ def map_urls(maps: Path = MAPS) -> dict[str, str]:
             for key, name in (("basemap", "basemap.pmtiles"), ("relief", "relief.geojson"))}
 
 
-def deployment_nodes(deployment: str | None, log=print) -> list[Node]:
-    """The deployment's nodes, for their surveyed and planned positions.
-
-    Read on every request, so an edited deployment file shows up without a
-    restart. No deployment configured means GPS only; an invalid file is logged
-    loudly, and the map falls back to GPS until it is fixed.
-    """
+def current_deployment(deployment: str | None, log=print) -> Deployment | None:
+    """The configured deployment, read on every request, so an edited file
+    shows up without a restart. None when there is none; an invalid file is
+    logged loudly, and the pages fall back to what the nodes report."""
     if not deployment:
-        return []
+        return None
     try:
-        return list(load(deployment).nodes)
+        return load(deployment)
     except DeploymentError as exc:
         log(f"[CFG] ERROR: {exc}\n[CFG] The map shows reported GPS only until it is fixed")
-        return []
+        return None
+
+
+def deployment_nodes(deployment: str | None, log=print) -> list[Node]:
+    """The deployment's nodes, for their surveyed and planned positions."""
+    dep = current_deployment(deployment, log)
+    return list(dep.nodes) if dep else []
+
+
+def mesh_summary(dep: Deployment | None) -> dict | None:
+    """Which mesh the pages show: its name, description and radio."""
+    if dep is None:
+        return None
+    radio = [dep.region, dep.modem_preset,
+             f"slot {dep.channel_num}" if dep.channel_num is not None else None]
+    return {"name": dep.name, "description": dep.description,
+            "radio": " · ".join(r for r in radio if r)}
 
 
 def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
     app = Flask(__name__)
     maps = map_urls()
+
+    @app.context_processor
+    def which_mesh():
+        return {"mesh": mesh_summary(current_deployment(cfg.deployment, log))}
     socketio = SocketIO(app, cors_allowed_origins=cfg.allowed_origins,
                         async_mode=async_mode, logger=True, engineio_logger=True)
 

@@ -48,8 +48,19 @@ Entry format:
 - Capturas a 911×512: nodos naranjas sobre curvas arena, logo en el panel,
   sin franja vacía. 261/261 tests.
 
+- Pedido siguiente: que el grafo diga de qué malla es. `gateway/deployment.py`
+  lee además `meta.description` y la región, el preset y el slot del bloque
+  `radio` (opcionales; con tipo equivocado, error). Todas las páginas reciben
+  `mesh` (nombre, descripción, radio): etiqueta con el nombre en la barra
+  superior; el grafo titulado "Meshtastic mesh rapa-nui" con la descripción y
+  "ANZ · MEDIUM_FAST · slot 45". Sin deployment, el grafo lo dice. GW dentro de
+  su círculo (que crece con el nombre); en un grafo chico, la etiqueta de cada
+  línea muestra solo el SNR. 265/265 tests.
+
 ### Next steps / open questions
 - `ssat-logo.png` y `sasipa-logo-white.png` sin uso: preguntar dónde van.
+- La descripción de `rapa-nui.yaml` dice "node sites to be defined": ya hay
+  sitios planificados. Se cambia en la plataforma y se vuelve a copiar.
 
 ---
 

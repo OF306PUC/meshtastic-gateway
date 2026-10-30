@@ -32,6 +32,11 @@ class TestLoad(unittest.TestCase):
         self.assertEqual(dep.name, "test-mesh")
         self.assertEqual([n.ref for n in dep.nodes], ["N1", "P1", "GW", "R1"])
 
+    def test_says_which_mesh_it_is(self):
+        dep = load(str(TEST_MESH))
+        self.assertEqual((dep.description, dep.region, dep.modem_preset, dep.channel_num),
+                         ("gateway tests", "ANZ", "MEDIUM_FAST", 45))
+
     def test_sha256_is_the_hash_of_the_bytes(self):
         """The same hash the platform records, so both copies can be compared (G10)."""
         self.assertEqual(load(str(TEST_MESH)).sha256,
@@ -137,6 +142,15 @@ class TestStrictOnWhatItReads(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = _write(d, name, nodes, meta_extra)
             with self.assertRaisesRegex(DeploymentError, pattern):
+                load(str(path))
+
+    def test_the_mesh_description_has_its_types(self):
+        node = NODE.format(ref="N1", node_id="!0b64122b", intervals="{}")
+        self.assertRejected(node, "meta.description: must be str", meta_extra="  description: 7\n")
+        with tempfile.TemporaryDirectory() as d:
+            path = _write(d, "mesh", node)
+            path.write_text(path.read_text().replace("radio: {}", "radio: {channel_num: high}"))
+            with self.assertRaisesRegex(DeploymentError, "radio.channel_num: must be int"):
                 load(str(path))
 
     def test_a_flow_must_be_absent_not_null_or_zero(self):

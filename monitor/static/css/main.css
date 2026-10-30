@@ -45,6 +45,17 @@ html, body {
     letter-spacing: .03em;
 }
 
+/* Which mesh every page is about: the deployment's name */
+.topbar .mesh-chip {
+    font-size: 12px;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 2px 10px;
+    margin-left: -6px;
+}
+
 .topbar .nav-link {
     color: var(--muted);
     text-decoration: none;

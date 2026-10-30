@@ -8,8 +8,14 @@
       grid-template-columns: 1fr 280px;
       height: calc(100vh - 46px);
   }
-  #graph { width: 100%; height: 100%; display: block; }
+  .graph-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .graph-title { padding: 14px 20px 0; }
+  .graph-title h2 { margin: 0; font-size: 18px; font-weight: 600; color: var(--text); }
+  .graph-title h2 span { color: var(--accent); }
+  .graph-title p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+  #graph { width: 100%; flex: 1; min-height: 0; display: block; }
   #graph text { fill: var(--text); font-size: 13px; }
+  #graph text.gw-label { fill: var(--bg); font-weight: 700; font-size: 12px; }
   #graph text.edge-label {
       fill: var(--muted); font-size: 11px;
       paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round;
@@ -47,7 +53,18 @@
 
 {% block content %}
 <div class="graph-page">
-    <svg id="graph" role="img" aria-label="Links the gateway hears"></svg>
+    <section class="graph-main">
+        <header class="graph-title">
+            {% if mesh %}
+            <h2>Meshtastic mesh <span>{{ mesh.name }}</span></h2>
+            <p>{{ mesh.description or "" }}{% if mesh.description and mesh.radio %} · {% endif %}{{ mesh.radio }}</p>
+            {% else %}
+            <h2>Meshtastic mesh</h2>
+            <p>No deployment configured (MESH_DEPLOYMENT): only the nodes the gateway heard are drawn.</p>
+            {% endif %}
+        </header>
+        <svg id="graph" role="img" aria-label="Links the gateway hears in {{ mesh.name if mesh else 'the mesh' }}"></svg>
+    </section>
     <aside class="graph-side">
         <h3>Direct links</h3>
         <p>A line joins a node to the gateway when the gateway heard it straight,
@@ -130,11 +147,14 @@
                     stroke: snrColour(l.snr), "stroke-linecap": "round",
                     "stroke-width": 1.5 + 4 * Math.log1p(l.direct) / Math.log1p(most) }, edges);
                 tip(line, summary);
-                // Beside the line, not on it: halfway out, shifted off its side.
-                const label = el("text", { x: cx + 0.55 * (x - cx) - 10 * Math.sin(a),
-                                           y: cy + 0.55 * (y - cy) + 10 * Math.cos(a) + 4,
+                // Beside the line, not on it, and out towards the node, where the
+                // labels of neighbouring lines are furthest apart.
+                const label = el("text", { x: cx + 0.68 * (x - cx) - 10 * Math.sin(a),
+                                           y: cy + 0.68 * (y - cy) + 10 * Math.cos(a) + 4,
                                            "text-anchor": "middle", class: "edge-label" }, edges);
-                label.textContent = `${fmt(l.snr, 1, "dB")} · ${fmt(l.rssi, 0, "dBm")}`;
+                // A small drawing has room for the SNR only; the RSSI stays in the tooltip.
+                label.textContent = r >= 150 ? `${fmt(l.snr, 1, "dB")} · ${fmt(l.rssi, 0, "dBm")}`
+                                             : fmt(l.snr, 1, "dB");
             } else if (l.relayed > 0) {
                 tip(el("line", { x1: x, y1: y, x2: cx, y2: cy, stroke: C("--faint"),
                                  "stroke-width": 1.5, "stroke-dasharray": "6 5" }, edges), summary);
@@ -154,9 +174,14 @@
             });
         });
 
+        // The gateway's name inside its circle, which grows to hold it: below
+        // the circle, the lines that meet there would cross it.
         const gw = el("g", {}, nodes);
-        el("circle", { cx, cy, r: 20, fill: C("--accent"), stroke: C("--bg"), "stroke-width": 3 }, gw);
-        el("text", { x: cx, y: cy + 38, "text-anchor": "middle" }, gw).textContent = data.gateway;
+        const gwName = el("text", { x: cx, y: cy + 4, "text-anchor": "middle", class: "gw-label" }, gw);
+        gwName.textContent = data.gateway;
+        const gwR = Math.max(20, gwName.getComputedTextLength() / 2 + 8);
+        gw.insertBefore(el("circle", { cx, cy, r: gwR, fill: C("--accent"), stroke: C("--bg"),
+                                       "stroke-width": 3 }), gwName);
         tip(gw, `${data.gateway}: the gateway radio`);
 
         const direct = links.filter(l => l.direct > 0).length;
