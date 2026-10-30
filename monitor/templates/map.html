@@ -57,9 +57,26 @@
         .catch(e => { reliefStatus.textContent = `Relief contours unavailable: ${e.message}`; console.error(e); });
 
     const status = document.getElementById("nodes-status");
-    // Pink: apart from the earth tones of the land contours and the blues of the sea.
-    const PLANNED_STYLE = { radius: 9, color: "#ff5fa2", weight: 2, dashArray: "4 3",
-                            fillColor: "#ff5fa2", fillOpacity: 0.25 };
+    // Apart from the earth tones of the land contours and the blues of the sea.
+    const css = getComputedStyle(document.documentElement);
+    const PLANNED = css.getPropertyValue("--planned").trim();
+    const PLANNED_STYLE = { radius: 9, color: PLANNED, weight: 2, dashArray: "4 3",
+                            fillColor: PLANNED, fillOpacity: 0.25 };
+    const NODE_STYLE = { radius: 9, color: css.getPropertyValue("--bg").trim(), weight: 2,
+                         fillColor: css.getPropertyValue("--node").trim(), fillOpacity: 0.95 };
+
+    // Uptime is how long the node has lived since its last boot: HH:MM:SS,
+    // with hours past 24 rather than days.
+    function fmtDuration(seconds) {
+        const t = Math.max(0, Math.round(seconds));
+        const pad = n => String(n).padStart(2, "0");
+        return `${pad(Math.floor(t / 3600))}:${pad(Math.floor(t % 3600 / 60))}:${pad(t % 60)}`;
+    }
+
+    function fmtWhen(iso) {
+        return new Date(iso).toLocaleString([], { month: "2-digit", day: "2-digit",
+                                                  hour: "2-digit", minute: "2-digit" });
+    }
 
     function load() {
         fetch("/api/nodes")
@@ -93,9 +110,8 @@
                 sites.forEach(group => {
                     const { lat, lon, source } = group[0];
                     // A planned site is a desk choice, not a measurement: drawn apart.
-                    const marker = (source === "planned"
-                        ? L.circleMarker([lat, lon], PLANNED_STYLE)
-                        : L.marker([lat, lon])).addTo(markerLayer);
+                    const marker = L.circleMarker([lat, lon],
+                        source === "planned" ? PLANNED_STYLE : NODE_STYLE).addTo(markerLayer);
                     bounds.push([lat, lon]);
 
                     const popup = document.createElement("div");
@@ -107,17 +123,28 @@
                         id.textContent = (n.node_id || "no node id yet") +
                             (n.source === "planned" ? " · planned site" : "");
                         popup.append(title, document.createElement("br"), id);
+                        if (n.uptime_s !== undefined) {
+                            // The reading's own time: a node silent for a day still
+                            // shows the uptime it last reported.
+                            const up = document.createElement("div");
+                            up.textContent = `Uptime ${fmtDuration(n.uptime_s)} `;
+                            const when = document.createElement("small");
+                            when.className = "muted";
+                            when.textContent = `· reported ${fmtWhen(n.uptime_at)}`;
+                            up.appendChild(when);
+                            popup.appendChild(up);
+                        }
                         if (n.node_id) {
                             const link = document.createElement("a");
                             link.href = `/dashboard?node=${encodeURIComponent(n.node_id)}`;
-                            link.style.cssText = "color:#4BC0C0;font-weight:bold;";
                             link.textContent = "Open dashboard →";
-                            popup.append(document.createElement("br"), link);
+                            popup.append(link);
                         }
                     });
                     const coords = document.createElement("small");
+                    coords.className = "muted";
                     coords.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
-                    popup.append(document.createElement("br"), document.createElement("br"), coords);
+                    popup.append(document.createElement("br"), coords);
                     marker.bindPopup(popup);
                     marker.on("mouseover", () => marker.openPopup());
 

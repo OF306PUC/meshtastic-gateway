@@ -34,7 +34,7 @@ Then open `http://<gateway-host>/` and log in as `dashboard`.
 | Path | What it is |
 |---|---|
 | `main.py`, `gateway/` | The receiver: decode, deduplicate, PDR, publish (`gateway-receiver` container) |
-| `monitor/` | The dashboard: map, per-node charts, live feed (`web` container, `python -m monitor`) |
+| `monitor/` | The dashboard: map, graph of the gateway's direct links, per-node charts, live feed (`web` container, `python -m monitor`) |
 | `proxy/`, `mqtt/`, `telegraf/` | The login in front of the dashboard; broker config, ACL and credential generator; topic → measurement mapping |
 | `docker-compose.yaml`, `Dockerfile` | The six services |
 | `deployments/` | The mesh description, shared with the platform |

@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block nav_graph %}active{% endblock %}
+
+{% block head %}
+<style>
+  .graph-page {
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      height: calc(100vh - 46px);
+  }
+  #graph { width: 100%; height: 100%; display: block; }
+  #graph text { fill: var(--text); font-size: 13px; }
+  #graph text.edge-label {
+      fill: var(--muted); font-size: 11px;
+      paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round;
+  }
+  #graph .node.link { cursor: pointer; }
+  #graph .node.link:hover circle { stroke: var(--accent); }
+
+  .graph-side {
+      background: var(--panel);
+      border-left: 1px solid var(--border);
+      padding: 16px;
+      overflow-y: auto;
+      font-size: 13px;
+      color: var(--muted);
+  }
+  .graph-side h3 { color: var(--text); font-size: 14px; margin: 0 0 8px; }
+  .graph-side p { line-height: 1.45; }
+  .graph-side select {
+      background: var(--panel-2); color: var(--text);
+      border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px;
+  }
+  .legend-row { display: flex; align-items: center; gap: 10px; margin: 7px 0; }
+  .swatch { width: 28px; border-top: 3px solid; }
+  .swatch.dashed { border-top-style: dashed; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; margin: 0 8px; }
+  #graph-status { margin-top: 14px; color: var(--text); }
+  #graph-status.error { color: var(--danger); }
+
+  @media (max-width: 800px) {
+      .graph-page { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+      .graph-side { border-left: 0; border-top: 1px solid var(--border); }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="graph-page">
+    <svg id="graph" role="img" aria-label="Links the gateway hears"></svg>
+    <aside class="graph-side">
+        <h3>Direct links</h3>
+        <p>A line joins a node to the gateway when the gateway heard it straight,
+           without a hop. Its colour is the mean SNR of those packets, its width
+           how many there were. Click a node to open its dashboard.</p>
+        <label>Window
+            <select id="hours">
+                <option value="6">6 h</option>
+                <option value="24" selected>24 h</option>
+                <option value="72">3 days</option>
+                <option value="168">7 days</option>
+            </select>
+        </label>
+        <div class="legend-row"><span class="swatch" style="border-color: var(--accent)"></span>SNR 0 dB or better</div>
+        <div class="legend-row"><span class="swatch" style="border-color: var(--warn)"></span>SNR −10 to 0 dB</div>
+        <div class="legend-row"><span class="swatch" style="border-color: var(--danger)"></span>SNR below −10 dB</div>
+        <div class="legend-row"><span class="swatch dashed" style="border-color: var(--faint)"></span>heard only through a relay</div>
+        <div class="legend-row"><span class="dot" style="background: var(--panel-2); border: 2px solid var(--faint)"></span>not heard in the window</div>
+        <div id="graph-status">Loading…</div>
+    </aside>
+</div>
+
+<script>
+(function () {
+    "use strict";
+
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const svg = document.getElementById("graph");
+    const status = document.getElementById("graph-status");
+    const hoursSel = document.getElementById("hours");
+    const css = getComputedStyle(document.documentElement);
+    const C = name => css.getPropertyValue(name).trim();
+    let last = null;
+
+    function el(tag, attrs, parent) {
+        const e = document.createElementNS(SVG_NS, tag);
+        for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+        if (parent) parent.appendChild(e);
+        return e;
+    }
+
+    function tip(parent, text) {
+        el("title", {}, parent).textContent = text;
+    }
+
+    function snrColour(snr) {
+        if (snr === null || snr === undefined) return C("--faint");
+        return snr >= 0 ? C("--accent") : snr >= -10 ? C("--warn") : C("--danger");
+    }
+
+    function fmt(v, digits, unit) {
+        return v === null || v === undefined ? "—" : `${v.toFixed(digits)} ${unit}`;
+    }
+
+    // The gateway in the centre, every node on a circle around it: a line is a
+    // link the gateway measured, so the drawing never invents one between nodes.
+    function draw(data) {
+        last = data;
+        svg.replaceChildren();
+        const { width, height } = svg.getBoundingClientRect();
+        svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+        const cx = width / 2, cy = height / 2;
+        const r = Math.max(70, Math.min(width, height) / 2 - 70);
+        const links = data.links;
+        const most = Math.max(1, ...links.map(l => l.direct));
+        const edges = el("g", {}, svg);
+        const nodes = el("g", {}, svg);
+
+        links.forEach((l, i) => {
+            const a = -Math.PI / 2 + 2 * Math.PI * i / links.length;
+            const x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
+            const name = l.node_label || l.node_id || "?";
+            const heard = l.direct > 0 || l.relayed > 0;
+            const summary = `${name}${l.node_id ? " " + l.node_id : ""}\n` +
+                `${l.direct} direct, ${l.relayed} relayed in ${data.hours} h\n` +
+                `direct: SNR ${fmt(l.snr, 1, "dB")}, RSSI ${fmt(l.rssi, 0, "dBm")}`;
+
+            if (l.direct > 0) {
+                const line = el("line", { x1: x, y1: y, x2: cx, y2: cy,
+                    stroke: snrColour(l.snr), "stroke-linecap": "round",
+                    "stroke-width": 1.5 + 4 * Math.log1p(l.direct) / Math.log1p(most) }, edges);
+                tip(line, summary);
+                // Beside the line, not on it: halfway out, shifted off its side.
+                const label = el("text", { x: cx + 0.55 * (x - cx) - 10 * Math.sin(a),
+                                           y: cy + 0.55 * (y - cy) + 10 * Math.cos(a) + 4,
+                                           "text-anchor": "middle", class: "edge-label" }, edges);
+                label.textContent = `${fmt(l.snr, 1, "dB")} · ${fmt(l.rssi, 0, "dBm")}`;
+            } else if (l.relayed > 0) {
+                tip(el("line", { x1: x, y1: y, x2: cx, y2: cy, stroke: C("--faint"),
+                                 "stroke-width": 1.5, "stroke-dasharray": "6 5" }, edges), summary);
+            }
+
+            const g = el("g", { class: "node" + (l.node_id ? " link" : "") }, nodes);
+            el("circle", { cx: x, cy: y, r: 14, "stroke-width": 2,
+                           fill: heard ? C("--node") : C("--panel-2"),
+                           stroke: heard ? C("--bg") : C("--faint") }, g);
+            // The name outside the circle, away from the lines that meet the centre.
+            const anchor = Math.abs(Math.cos(a)) < 0.3 ? "middle" : Math.cos(a) > 0 ? "start" : "end";
+            el("text", { x: x + 24 * Math.cos(a), y: y + 24 * Math.sin(a) + 5,
+                         "text-anchor": anchor }, g).textContent = name;
+            tip(g, summary);
+            if (l.node_id) g.addEventListener("click", () => {
+                window.location.href = `/dashboard?node=${encodeURIComponent(l.node_id)}`;
+            });
+        });
+
+        const gw = el("g", {}, nodes);
+        el("circle", { cx, cy, r: 20, fill: C("--accent"), stroke: C("--bg"), "stroke-width": 3 }, gw);
+        el("text", { x: cx, y: cy + 38, "text-anchor": "middle" }, gw).textContent = data.gateway;
+        tip(gw, `${data.gateway}: the gateway radio`);
+
+        const direct = links.filter(l => l.direct > 0).length;
+        status.className = "";
+        status.textContent = links.length
+            ? `${direct} of ${links.length} node(s) heard directly in the last ${data.hours} h.`
+            : "No node in the deployment, and none heard.";
+    }
+
+    function load() {
+        fetch(`/api/links?hours=${encodeURIComponent(hoursSel.value)}`)
+            .then(async r => {
+                const body = await r.json();
+                // A failed query is an error to show, not a mesh with no links.
+                if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+                return body;
+            })
+            .then(draw)
+            .catch(e => {
+                status.className = "error";
+                status.textContent = `Error loading links: ${e.message}`;
+                console.error(e);
+            });
+    }
+
+    hoursSel.addEventListener("change", load);
+    window.addEventListener("resize", () => { if (last) draw(last); });
+    load();
+    setInterval(load, 60000);
+})();
+</script>
+{% endblock %}

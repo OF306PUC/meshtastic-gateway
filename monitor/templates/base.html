@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LoRa Testbed</title>
+    <title>LoRa Mesh</title>
     <link rel="icon" href="{{ url_for('static', filename='img/ico/favicon.ico') }}" type="image/x-icon">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
-
     <!-- Served from static/vendor (see its fetch.sh): no CDN, works offline in the field -->
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet-1.9.4/leaflet.css') }}"/>
+    <!-- After Leaflet's, so the popups take the dashboard's colours -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
     <script src="{{ url_for('static', filename='vendor/leaflet-1.9.4/leaflet.js') }}"></script>
     <script src="{{ url_for('static', filename='vendor/chart.js-4.6.1/chart.umd.min.js') }}"></script>
     <script src="{{ url_for('static', filename='vendor/chartjs-adapter-date-fns-3.0.0/chartjs-adapter-date-fns.bundle.min.js') }}"></script>
@@ -18,8 +18,9 @@
 </head>
 <body>
     <nav class="topbar">
-        <span class="brand">LoRa Testbed</span>
-        <a href="/map"  class="nav-link {% block nav_map %}{% endblock %}">🗺 Map</a>
+        <span class="brand">LoRa Mesh</span>
+        <a href="/map"   class="nav-link {% block nav_map %}{% endblock %}">🗺 Map</a>
+        <a href="/graph" class="nav-link {% block nav_graph %}{% endblock %}">🕸 Graph</a>
     </nav>
     <main>
         {% block content %}{% endblock %}

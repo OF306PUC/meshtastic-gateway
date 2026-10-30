@@ -1,10 +1,27 @@
 *, *::before, *::after { box-sizing: border-box; }
 
+/* Meshtastic's look: near-black neutrals, its green (#67EA94) as the accent. */
+:root {
+    --bg:        #121417;
+    --panel:     #1b1e23;
+    --panel-2:   #23272e;
+    --border:    #2d333b;
+    --text:      #e6edf3;
+    --muted:     #8b949e;
+    --faint:     #545d68;
+    --accent:    #67ea94;
+    --accent-bg: #67ea9420;
+    --danger:    #f0716b;
+    --warn:      #e3b341;
+    --planned:   #ff5fa2;
+    --node:      #58a6ff;   /* the nodes, on the map and the graph: SASIPA's colour once its logo is in */
+}
+
 html, body {
     margin: 0; padding: 0;
-    font-family: "Segoe UI", Arial, sans-serif;
-    background: #111d25;
-    color: #d0dfe6;
+    font-family: "Segoe UI", system-ui, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
     height: 100%;
 }
 
@@ -12,11 +29,11 @@ html, body {
 .topbar {
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 16px;
     padding: 0 20px;
     height: 46px;
-    background: #0d1a22;
-    border-bottom: 1px solid #1e3040;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
     z-index: 1000;
@@ -25,12 +42,12 @@ html, body {
 .topbar .brand {
     font-weight: 700;
     font-size: 15px;
-    color: #4BC0C0;
+    color: var(--accent);
     letter-spacing: .03em;
 }
 
 .topbar .nav-link {
-    color: #8aabb5;
+    color: var(--muted);
     text-decoration: none;
     font-size: 14px;
     padding: 4px 10px;
@@ -39,8 +56,8 @@ html, body {
 }
 .topbar .nav-link:hover,
 .topbar .nav-link.active {
-    background: #1c2b35;
-    color: #4BC0C0;
+    background: var(--accent-bg);
+    color: var(--accent);
 }
 
 main { height: calc(100vh - 46px); overflow: hidden; }
@@ -49,6 +66,7 @@ main { height: calc(100vh - 46px); overflow: hidden; }
 #map {
     width: 100%;
     height: calc(100vh - 46px - 36px);
+    background: var(--bg);
 }
 
 #map-status {
@@ -57,23 +75,26 @@ main { height: calc(100vh - 46px); overflow: hidden; }
     align-items: center;
     padding: 0 16px;
     font-size: 13px;
-    color: #7a9aaa;
-    background: #0d1a22;
-    border-top: 1px solid #1e3040;
+    color: var(--muted);
+    background: var(--panel);
+    border-top: 1px solid var(--border);
 }
 
-#relief-status { margin-left: auto; color: #e08a5a; }
+#relief-status { margin-left: auto; color: var(--danger); }
 
 /* ── Leaflet popup ── */
 .leaflet-popup-content-wrapper {
-    background: #1c2b35;
-    color: #d0dfe6;
-    border: 1px solid #2e4250;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
     border-radius: 8px;
 }
-.leaflet-popup-tip { background: #1c2b35; }
+.leaflet-popup-tip { background: var(--panel-2); }
+.leaflet-popup-content a { color: var(--accent); font-weight: 600; }
+.leaflet-popup-content hr { border: 0; border-top: 1px solid var(--border); }
+.leaflet-popup-content .muted { color: var(--muted); }
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #111d25; }
-::-webkit-scrollbar-thumb { background: #2e4250; border-radius: 3px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }

@@ -25,8 +25,9 @@ N1, P1 = "!0b64122b", "!11223344"
 
 
 class _DB:
-    def __init__(self, positions=(), recent=(), fail=False):
+    def __init__(self, positions=(), recent=(), fail=False, uptimes=None, links=()):
         self.positions, self.recent, self.fail, self.calls = list(positions), list(recent), fail, []
+        self.uptimes, self.links = dict(uptimes or {}), [dict(link) for link in links]
 
     def _maybe_fail(self):
         if self.fail:
@@ -40,6 +41,15 @@ class _DB:
         self.calls.append((node_id, field, limit))
         self._maybe_fail()
         return self.recent
+
+    def get_nodes_uptime(self):
+        self._maybe_fail()
+        return dict(self.uptimes)
+
+    def get_links(self, hours):
+        self.calls.append(("links", hours))
+        self._maybe_fail()
+        return [dict(link) for link in self.links]
 
 
 class MonitorCase(unittest.TestCase):
@@ -82,6 +92,13 @@ class TestApiNodes(MonitorCase):
                                      "lon": -109.3497, "source": "surveyed",
                                      "gps_lat": -27.2, "gps_lon": -109.4})
         self.assertEqual(nodes[P1]["source"], "gps", "no survey yet, and GPS beats planned")
+
+    def test_each_node_carries_its_last_uptime_and_when(self):
+        db = _DB(self.GPS, uptimes={N1: {"uptime_s": 18703, "uptime_at": "2026-10-28T17:25:54Z"}})
+        nodes = {n["node_id"]: n for n in self.client(db).get("/api/nodes").json}
+        self.assertEqual((nodes[N1]["uptime_s"], nodes[N1]["uptime_at"]),
+                         (18703, "2026-10-28T17:25:54Z"))
+        self.assertNotIn("uptime_s", nodes[P1], "none reported")
 
     def test_a_planned_site_only_when_there_is_nothing_better(self):
         nodes = {n["node_label"]: n for n in self.client(_DB()).get("/api/nodes").json}
@@ -131,6 +148,37 @@ class TestApiRecent(MonitorCase):
         self.assertEqual(r.status_code, 503)
 
 
+class TestApiLinks(MonitorCase):
+    HEARD = [{"node_id": N1, "node_label": "node-1", "direct": 40, "relayed": 2,
+              "rssi": -97.5, "snr": 4.25},
+             {"node_id": P1, "node_label": "P1", "direct": 0, "relayed": 7,
+              "rssi": None, "snr": None},
+             {"node_id": "!deadbeef", "node_label": "stray", "direct": 3, "relayed": 0,
+              "rssi": -120.0, "snr": -12.0}]
+
+    def test_every_node_of_the_file_and_every_node_heard(self):
+        body = self.client(_DB(links=self.HEARD)).get("/api/links").json
+        self.assertEqual(body["gateway"], "GW")
+        self.assertEqual(body["hours"], 24)
+        links = {link["node_label"]: link for link in body["links"]}
+        self.assertEqual(set(links), {"node-1", "P1", "R1", "stray"}, "the gateway is the centre")
+        self.assertEqual((links["node-1"]["direct"], links["node-1"]["snr"]), (40, 4.25))
+        self.assertEqual((links["P1"]["direct"], links["P1"]["relayed"]), (0, 7))
+        self.assertEqual(links["R1"], {"node_id": None, "node_label": "R1", "function": "receiver",
+                                       "direct": 0, "relayed": 0, "rssi": None, "snr": None})
+        self.assertIsNone(links["stray"]["function"], "heard, but not in the file")
+
+    def test_the_window_is_clamped(self):
+        db = _DB()
+        client = self.client(db)
+        for asked in ("0", "6", "100000"):
+            client.get(f"/api/links?hours={asked}")
+        self.assertEqual([c[1] for c in db.calls], [1, 6, 168])
+
+    def test_a_database_failure_is_a_503(self):
+        self.assertEqual(self.client(_DB(fail=True)).get("/api/links").status_code, 503)
+
+
 class TestPages(MonitorCase):
     def test_pages(self):
         client = self.client(_DB())
@@ -142,6 +190,19 @@ class TestPages(MonitorCase):
         r = client.get(f"/dashboard?node={N1}")
         self.assertIn(N1.encode(), r.data)
         self.assertIn(b'id="dash-error"', r.data)
+        self.assertIn(b'id="graph"', client.get("/graph").data)
+
+    def test_climate_charts_only_for_a_node_with_the_sensor(self):
+        client = self.client(_DB())
+        for node_id, expected in ((N1, b"true"), (P1, b"false"), ("!0000beef", b"true")):
+            with self.subTest(node_id=node_id):
+                page = client.get(f"/dashboard?node={node_id}").data
+                self.assertIn(b"const HAS_ENVIRONMENT = " + expected, page)
+
+    def test_the_brand(self):
+        page = self.client(_DB()).get("/map").data
+        self.assertIn(b"<title>LoRa Mesh</title>", page)
+        self.assertNotIn(b"Testbed", page)
 
 
 class TestOfflineAssets(MonitorCase):
@@ -152,7 +213,7 @@ class TestOfflineAssets(MonitorCase):
 
     def test_pages_load_no_script_or_style_from_the_internet(self):
         client = self.client(_DB())
-        for page in ("/map", f"/dashboard?node={N1}"):
+        for page in ("/map", "/graph", f"/dashboard?node={N1}"):
             refs = re.findall(r'<(?:script|link)[^>]+(?:src|href)="([^"]+)"',
                               client.get(page).data.decode())
             self.assertTrue(refs, page)
@@ -206,6 +267,10 @@ class TestInfluxDBConnector(unittest.TestCase):
             self.db.get_nodes_position()
         with self.assertRaises(DatabaseError):
             self.db.get_recent(N1, "voltage", limit=10)
+        with self.assertRaises(DatabaseError):
+            self.db.get_nodes_uptime()
+        with self.assertRaises(DatabaseError):
+            self.db.get_links(24)
 
 
 class TestLiveFeed(unittest.TestCase):

@@ -49,23 +49,50 @@ class InfluxDBConnector:
         except Exception as exc:
             raise DatabaseError(f"InfluxDB query failed: {exc}") from exc
 
-    def get_nodes_position(self) -> list[dict]:
-        q = (f'SELECT LAST("latitude") AS lat, LAST("longitude") AS lon '
-             f'FROM "{self.measurement}" GROUP BY "node_id","node_label"')
+    def _grouped(self, q) -> list[tuple[dict, dict]]:
+        """(tags, row) for each series of a GROUP BY query that returns one row."""
         try:
             series = self.client.query(q).raw.get("series", [])
         except Exception as exc:
             raise DatabaseError(f"InfluxDB query failed: {exc}") from exc
-        out = []
-        for serie in series:
-            tags, values = serie.get("tags", {}), serie.get("values")
-            if not values:
-                continue
-            row = dict(zip(serie["columns"], values[0]))
-            if row.get("lat") is not None and row.get("lon") is not None:
-                out.append({"node_id": tags.get("node_id"), "node_label": tags.get("node_label"),
-                            "lat": row["lat"], "lon": row["lon"]})
-        return out
+        return [(s.get("tags", {}), dict(zip(s["columns"], s["values"][0])))
+                for s in series if s.get("values")]
+
+    def get_nodes_position(self) -> list[dict]:
+        q = (f'SELECT LAST("latitude") AS lat, LAST("longitude") AS lon '
+             f'FROM "{self.measurement}" GROUP BY "node_id","node_label"')
+        return [{"node_id": tags.get("node_id"), "node_label": tags.get("node_label"),
+                 "lat": row["lat"], "lon": row["lon"]}
+                for tags, row in self._grouped(q)
+                if row.get("lat") is not None and row.get("lon") is not None]
+
+    def get_nodes_uptime(self) -> dict[str, dict]:
+        """{node_id: {uptime_s, uptime_at}}: the last uptime each node reported, and when."""
+        q = (f'SELECT LAST("uptime_seconds") AS uptime FROM "{self.measurement}" '
+             f'GROUP BY "node_id"')
+        return {tags["node_id"]: {"uptime_s": row["uptime"], "uptime_at": row["time"]}
+                for tags, row in self._grouped(q)
+                if tags.get("node_id") and row.get("uptime") is not None}
+
+    def get_links(self, hours: int) -> list[dict]:
+        """Per node, what the gateway heard over the last `hours`: packets straight
+        from it (hop 0), with their mean RSSI and SNR, and packets a relay passed on."""
+        since = f'time > now() - {int(hours)}h'
+        links = {}
+        for tags, row in self._grouped(
+                f'SELECT COUNT("hop") AS direct, MEAN("rssi") AS rssi, MEAN("snr") AS snr '
+                f'FROM "{self.measurement}" WHERE "hop" = 0 AND {since} '
+                f'GROUP BY "node_id","node_label"'):
+            links[tags["node_id"]] = {"node_id": tags["node_id"], "node_label": tags.get("node_label"),
+                                      "direct": row["direct"], "relayed": 0,
+                                      "rssi": row["rssi"], "snr": row["snr"]}
+        for tags, row in self._grouped(
+                f'SELECT COUNT("hop") AS relayed FROM "{self.measurement}" '
+                f'WHERE "hop" > 0 AND {since} GROUP BY "node_id","node_label"'):
+            links.setdefault(tags["node_id"], {"node_id": tags["node_id"],
+                                               "node_label": tags.get("node_label"), "direct": 0,
+                                               "rssi": None, "snr": None})["relayed"] = row["relayed"]
+        return list(links.values())
 
     def get_recent(self, node_id: str, field: str, limit: int) -> list[dict]:
         """The last `limit` points of one field on one node, oldest first."""

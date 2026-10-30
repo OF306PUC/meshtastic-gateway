@@ -20,6 +20,52 @@ Entry format:
 
 ---
 
+## 2026-10-29 — Dashboard: LoRa Mesh, paleta Meshtastic, grafo de enlaces
+**Time:** 16:40–17:30 (aprox)
+**User request:** en su laptop Windows (pantalla reducida) los gráficos no se
+ven bien; "LoRa Mesh" en vez de "LoRa Testbed"; paleta tipo Meshtastic; un
+grafo de los enlaces sin salto en otra pestaña junto a Map; logo de SASIPA en
+los paneles de gráficos y nodos con su color; gráficos solo de los sensores
+que existen (sin SHT4X, sin temperatura ni humedad); el uptime no como
+gráfico, sino en el popup del nodo. pi7 ya pasó a `sasipa/rapa-nui`.
+
+### Actions taken
+- `main.css`: variables de color (fondos neutros oscuros, verde Meshtastic
+  `#67EA94` como acento, `--node` para los nodos, `--planned`); `main.css` se
+  carga después de `leaflet.css`, así los popups toman esos colores (antes
+  salían blancos).
+- `base.html`: "LoRa Mesh"; pestaña Graph junto a Map.
+- `dashboard.html`: grilla `auto-fill` con tarjetas de 240 px y scroll, en vez
+  de meter todos los gráficos en la altura de la ventana; sin gráfico de
+  uptime; temperatura y humedad solo si el nodo declara el flujo
+  `environment` (V3b: ⇔ SHT4X); encabezado con nombre e ID; SNR en dB.
+- `/api/nodes`: último uptime de cada nodo y su hora (`get_nodes_uptime`);
+  el mapa lo muestra en el popup como HH:MM:SS, con la hora del reporte.
+  Marcadores como círculos de color `--node`.
+- `/graph` + `/api/links?hours=`: por nodo, paquetes oídos sin salto (`hop =
+  0`) con RSSI y SNR medios, y los que llegaron por relay (`get_links`).
+  SVG sin librería nueva: gateway al centro, nodos en círculo; línea solo si
+  hubo enlace directo (color por SNR, grosor por cantidad), punteada si solo
+  por relay, nodo gris si no se oyó.
+- Tests: API de enlaces, uptime, gráficos según sensor, marca, página del
+  grafo sin recursos externos, consultas nuevas que fallan con error.
+
+### Outcomes
+- Consultas InfluxQL probadas contra un InfluxDB 1.8 local con datos
+  sintéticos (ventana, directos y por relay, uptime con su hora).
+- Capturas en Chrome headless a 911×512 (1366×768 al 150 %): dos columnas
+  legibles con scroll, grafo legible, popup oscuro con el uptime.
+- 259/259 tests.
+
+### Next steps / open questions
+- Logo de SASIPA: no está en los repos (el `logo16.pdf` de la guía es el de
+  CPS-RTC). Con el archivo: logo en los paneles de gráficos y `--node` con su
+  color.
+- pi7 no responde por la red de la oficina (en modo punto de acceso): el
+  despliegue lo hace el usuario.
+
+---
+
 ## 2026-10-29 — Punto de acceso en terreno, mapa offline y sitios de SASIPA
 **Time:** 13:00–14:00 (aprox)
 **User request:** red local en terreno (RaspAP o hotspot propio); guía paso a

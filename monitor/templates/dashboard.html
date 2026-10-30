@@ -7,71 +7,65 @@
       align-items: center;
       gap: 16px;
       padding: 10px 20px;
-      background: #1c2b35;
-      border-bottom: 1px solid #2e4250;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
   }
-  .dash-header h2 { margin: 0; font-size: 18px; color: #4BC0C0; }
-  .dash-header .back { color: #aaa; text-decoration: none; font-size: 13px; }
-  .dash-header .back:hover { color: #4BC0C0; }
+  .dash-header h2 { margin: 0; font-size: 18px; color: var(--accent); }
+  .dash-header h2 small { color: var(--muted); font-weight: 400; font-size: 13px; }
+  .dash-header .back { color: var(--muted); text-decoration: none; font-size: 13px; }
+  .dash-header .back:hover { color: var(--accent); }
   .dash-header .ws-dot {
       width: 10px; height: 10px; border-radius: 50%;
-      background: #555; margin-left: auto;
+      background: var(--faint); margin-left: auto;
       transition: background .4s;
   }
-  .dash-header .ws-dot.live { background: #4BC0C0; }
-  .dash-header .dash-error { color: #e05454; font-size: 13px; }
+  .dash-header .ws-dot.live { background: var(--accent); }
+  .dash-header .dash-error { color: var(--danger); font-size: 13px; }
 
+  /* As many columns as fit, each card a readable height; the page scrolls
+     instead of squeezing every chart into the window (a small laptop screen,
+     or Windows scaling the page to 125-150 %). */
   .charts-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      grid-auto-rows: 1fr;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      grid-auto-rows: 240px;
       gap: 14px;
       padding: 14px;
       height: calc(100vh - 46px - 54px);
-      box-sizing: border-box;
-  }
-  /* 10 charts in a 3-col grid → 3+3+3+1 rows.
-     The 10th card (altitude) spans the full last row. */
-  .charts-grid .chart-card:nth-child(10) {
-      grid-column: 1 / -1;
+      overflow-y: auto;
   }
   .chart-card {
-      background: #1c2b35;
+      background: var(--panel);
       border-radius: 10px;
-      border: 1px solid #2e4250;
+      border: 1px solid var(--border);
       padding: 12px 16px;
       display: flex;
       flex-direction: column;
       gap: 6px;
       min-height: 0;
+      min-width: 0;
   }
   .card-title {
       font-size: 13px;
       font-weight: 600;
-      color: #9fc8d0;
+      color: var(--text);
       display: flex;
       justify-content: space-between;
       align-items: baseline;
   }
+  .card-title small { color: var(--faint); font-weight: 400; }
   .card-title .live-val {
       font-size: 15px;
-      color: #4BC0C0;
+      color: var(--accent);
       font-weight: 700;
   }
-  /* Timestamp legend row under the title */
-  .card-ts {
-      display: flex;
-      gap: 16px;
-      font-size: 11px;
-      color: #556a77;
-  }
-  .card-ts .ts-received { color: #4BC0C0cc; }
+  .card-ts { font-size: 11px; color: var(--muted); }
 
-  .chart-card canvas { width: 100% !important; flex: 1; min-height: 0; }
+  .chart-box { position: relative; flex: 1; min-height: 0; }
 
   @keyframes valFlash {
       0%   { color: #fff; }
-      100% { color: #4BC0C0; }
+      100% { color: var(--accent); }
   }
 </style>
 {% endblock %}
@@ -79,7 +73,7 @@
 {% block content %}
 <div class="dash-header">
     <a href="/map" class="back">← Map</a>
-    <h2>Node: <span id="node-label">{{ node_id }}</span></h2>
+    <h2>{{ node_name or node_id }}{% if node_name %} <small>{{ node_id }}</small>{% endif %}</h2>
     <span class="dash-error" id="dash-error"></span>
     <div class="ws-dot" id="ws-dot" title="WebSocket status"></div>
 </div>
@@ -91,29 +85,34 @@
     "use strict";
 
     const NODE_ID = {{ node_id | tojson }};
+    // Temperature and humidity only for a node that carries the SHT4X.
+    const HAS_ENVIRONMENT = {{ environment | tojson }};
+
+    const css = getComputedStyle(document.documentElement);
+    const MUTED = css.getPropertyValue("--muted").trim();
+    const GRID  = css.getPropertyValue("--border").trim();
 
     // ── Field metadata (no GPS fields) ───────────────────────────────
     const FIELDS = [
         // Environment
-        { key: "temperature",    label: "Temperature",  unit: "°C", color: "#e07b54" },
-        { key: "humidity",       label: "Humidity",     unit: "%",  color: "#54aee0" },
-        // Device
-        { key: "battery_level",  label: "Battery",      unit: "%",  color: "#e0d454" },
-        { key: "voltage",        label: "Voltage",      unit: "V",  color: "#e0a854" },
-        { key: "channel_util",   label: "Channel Util", unit: "%",  color: "#a054e0" },
-        { key: "air_util_tx",    label: "Air Util TX",  unit: "%",  color: "#e054c8" },
-        { key: "uptime_seconds", label: "Uptime",       unit: "HH:MM:SS", color: "#54c8e0" },
-        // Position (fixed installations — flat line confirms node is reporting)
-        { key: "rssi",           label: "RSSI Rx Message",   unit: "dBm",  color: "#7be07b" },
-        { key: "snr",            label: "SNR Rx Message" ,   unit: "dBm",  color: "#7be0b8" },
-        { key: "hop",            label: "Hops Rx Message",   unit: "",     color: "#b8e07b" },
-    ];
+        { key: "temperature",   label: "Temperature",     unit: "°C",  color: "#ff9e64", env: true },
+        { key: "humidity",      label: "Humidity",        unit: "%",   color: "#7dcfff", env: true },
+        // Device. Uptime is not a chart: the map shows it on each node.
+        { key: "battery_level", label: "Battery",         unit: "%",   color: "#67ea94" },
+        { key: "voltage",       label: "Voltage",         unit: "V",   color: "#b4f9c8" },
+        { key: "channel_util",  label: "Channel Util",    unit: "%",   color: "#c3a6ff" },
+        { key: "air_util_tx",   label: "Air Util TX",     unit: "%",   color: "#ff7ab8" },
+        // How each packet arrived
+        { key: "rssi",          label: "RSSI Rx Message", unit: "dBm", color: "#67ea94" },
+        { key: "snr",           label: "SNR Rx Message",  unit: "dB",  color: "#9ece6a" },
+        { key: "hop",           label: "Hops Rx Message", unit: "",    color: "#e0af68" },
+    ].filter(f => HAS_ENVIRONMENT || !f.env);
 
     // topic suffix → which fields it carries
     const TOPIC_FIELDS = {
         environment: ["temperature", "humidity"],
         rx_metrics:  ["rssi", "snr", "hop"],
-        device:      ["battery_level", "voltage", "channel_util", "air_util_tx", "uptime_seconds"],
+        device:      ["battery_level", "voltage", "channel_util", "air_util_tx"],
     };
 
     const MAX_POINTS = 120;
@@ -121,7 +120,7 @@
     // ── State ────────────────────────────────────────────────────────
     const charts   = {};   // key → Chart instance
     const liveVals = {};   // key → value span
-    const tsEls    = {};   // key → { sent, received, latency } span refs
+    const tsEls    = {};   // key → received-at span
 
     // ── Helpers ──────────────────────────────────────────────────────
     function fmtTime(d) {
@@ -129,79 +128,42 @@
         return new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     }
 
-    // Uptime is how long the node has lived since its last boot: HH:MM:SS,
-    // with hours past 24 rather than days.
-    function fmtDuration(seconds) {
-        const t = Math.max(0, Math.round(seconds));
-        const pad = n => String(n).padStart(2, "0");
-        return `${pad(Math.floor(t / 3600))}:${pad(Math.floor(t % 3600 / 60))}:${pad(t % 60)}`;
-    }
-
-    // Ticks a person reads as durations: whole minutes and hours, at most 8.
-    const DURATION_STEPS = [60, 300, 600, 1800, 3600, 3 * 3600, 6 * 3600, 12 * 3600, 24 * 3600];
-    function durationTicks(axis) {
-        const span = axis.max - axis.min;
-        const step = DURATION_STEPS.find(s => span / s <= 8) || 24 * 3600;
-        axis.ticks = [];
-        for (let v = Math.ceil(axis.min / step) * step; v <= axis.max; v += step) {
-            axis.ticks.push({ value: v });
-        }
-    }
-
-    function fmtVal(key, v) {
+    function fmtVal(v) {
         if (v === null || v === undefined) return "—";
-        if (key === "uptime_seconds") return fmtDuration(v);
         return typeof v === "number" ? v.toFixed(3) : String(v);
     }
 
     // ── Chart factory ────────────────────────────────────────────────
     function createChart(field) {
         const { key, label, unit, color } = field;
-        const grid = document.getElementById("charts-grid");
-        const isDuration = key === "uptime_seconds";
 
         const card = document.createElement("div");
         card.className = "chart-card";
         card.innerHTML = `
             <div class="card-title">
-                <span>${label} <small style="color:#445">(${unit})</small></span>
-                <span class="live-val" id="live-${key}">—</span>
+                <span>${label} <small>${unit ? "(" + unit + ")" : ""}</small></span>
+                <span class="live-val">—</span>
             </div>
-                <div class="card-ts">
-                    <span class="ts-received">Received: <span id="ts-recv-${key}">—</span></span>
-                </div>
-            <canvas id="canvas-${key}"></canvas>`;
-        grid.appendChild(card);
+            <div class="card-ts">Received: <span class="ts-recv">—</span></div>
+            <div class="chart-box"><canvas></canvas></div>`;
+        document.getElementById("charts-grid").appendChild(card);
 
-        liveVals[key] = document.getElementById(`live-${key}`);
-        tsEls[key] = {
-            recv: document.getElementById(`ts-recv-${key}`),
-        };
+        liveVals[key] = card.querySelector(".live-val");
+        tsEls[key] = card.querySelector(".ts-recv");
 
-        const ctx = document.getElementById(`canvas-${key}`).getContext("2d");
-
-        const commonOpts = {
-            borderWidth: 1.8,
-            pointRadius: 1.0,
-            fill: true,
-            tension: 0.3,
-        };
-
-        charts[key] = new Chart(ctx, {
+        charts[key] = new Chart(card.querySelector("canvas").getContext("2d"), {
             type: "line",
             data: {
-                datasets: [
-                    {
-                        label: `${label} (${unit})`,
-                        data: [],
-                        borderColor: color,
-                        backgroundColor: color + "18",
-                        borderWidth: 1.8,
-                        pointRadius: 1.0,
-                        fill: true,
-                        tension: 0.3,
-                    },
-                ]
+                datasets: [{
+                    label: unit ? `${label} (${unit})` : label,
+                    data: [],
+                    borderColor: color,
+                    backgroundColor: color + "18",
+                    borderWidth: 1.8,
+                    pointRadius: 1.0,
+                    fill: true,
+                    tension: 0.3,
+                }]
             },
             options: {
                 animation: false,
@@ -215,37 +177,23 @@
                             tooltipFormat: "HH:mm:ss",
                             displayFormats: { second: "HH:mm:ss", minute: "HH:mm" },
                         },
-                        ticks: { color: "#7a9aaa", maxTicksLimit: 6, maxRotation: 0 },
-                        grid:  { color: "#1e3040" },
-                        title: { display: true, text: "Time", color: "#445a66", font: { size: 10 } },
+                        ticks: { color: MUTED, maxTicksLimit: 6, maxRotation: 0 },
+                        grid:  { color: GRID },
                     },
                     y: {
-                        ticks: { color: "#7a9aaa", ...(isDuration && { callback: v => fmtDuration(v) }) },
-                        ...(isDuration && { afterBuildTicks: durationTicks }),
-                        grid:  { color: "#1e3040" },
+                        ticks: { color: MUTED },
+                        grid:  { color: GRID },
                     }
                 },
                 plugins: {
-                    legend: {
-                        display: true,
-                        labels: {
-                            color: "#7a9aaa",
-                            font: { size: 11 },
-                            boxWidth: 20,
-                            usePointStyle: true,
-                        }
-                    },
-                    tooltip: {
-                        titleColor: "#ccc",
-                        bodyColor: "#eee",
-                        ...(isDuration && { callbacks: { label: c => `${label}: ${fmtDuration(c.parsed.y)}` } }),
-                    },
+                    legend: { display: false },
+                    tooltip: { titleColor: "#ccc", bodyColor: "#eee" },
                 }
             }
         });
     }
 
-    // ── Push a new point onto both datasets ──────────────────────────
+    // ── Push a new point ─────────────────────────────────────────────
     function pushPoint(key, value, receivedAt) {
         const chart = charts[key];
         if (!chart) return;
@@ -256,15 +204,12 @@
         chart.update("none");
 
         const el = liveVals[key];
-        if (el) {
-            el.textContent = fmtVal(key, value);
-            el.style.animation = "none";
-            void el.offsetWidth;
-            el.style.animation = "valFlash .5s ease-out";
-        }
+        el.textContent = fmtVal(value);
+        el.style.animation = "none";
+        void el.offsetWidth;
+        el.style.animation = "valFlash .5s ease-out";
 
-        const ts = tsEls[key];
-        if (ts) ts.recv.textContent = fmtTime(receivedAt * 1000);
+        tsEls[key].textContent = fmtTime(receivedAt * 1000);
     }
 
     // ── Seed charts from historical data ─────────────────────────────
@@ -280,18 +225,15 @@
             }
             if (!rows.length) return;
 
-            const ds = charts[key].data.datasets[0];
-            ds.data = rows.map(row => ({
+            charts[key].data.datasets[0].data = rows.map(row => ({
                 x: Date.parse(row.time),
                 y: row[key],
             }));
             charts[key].update("none");
 
             const last = rows[rows.length - 1];
-            const el = liveVals[key];
-            if (el) el.textContent = fmtVal(key, last[key]);
-            const ts = tsEls[key];
-            if (ts) ts.recv.textContent = fmtTime(Date.parse(last.time));
+            liveVals[key].textContent = fmtVal(last[key]);
+            tsEls[key].textContent = fmtTime(Date.parse(last.time));
         } catch(e) {
             console.warn(`[seed] ${key}:`, e);
         }

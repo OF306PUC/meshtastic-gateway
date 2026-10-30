@@ -1,5 +1,5 @@
-"""The dashboard's pages and JSON API: / and /map, /dashboard, /api/nodes and
-/api/recent/<node_id>/<field>.
+"""The dashboard's pages and JSON API: / and /map, /graph, /dashboard,
+/api/nodes, /api/links and /api/recent/<node_id>/<field>.
 
 A query that fails answers 503 with the reason; it never answers an empty list,
 which the map would show as "no nodes yet".
@@ -49,12 +49,22 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
     def map_view():
         return render_template("map.html")
 
+    @app.route("/graph")
+    def graph_view():
+        return render_template("graph.html")
+
     @app.route("/dashboard")
     def dashboard():
         node_id = request.args.get("node", "")
         if not NODE_ID_RE.match(node_id):
             return render_template("map.html")
-        return render_template("dashboard.html", node_id=node_id)
+        node = next((n for n in deployment_nodes(cfg.deployment, log) if n.node_id == node_id),
+                    None)
+        # Charts only for what the node carries: no environment flow, no SHT4X
+        # (V3b). A node the file does not describe gets them all.
+        return render_template("dashboard.html", node_id=node_id,
+                               node_name=node.name if node else None,
+                               environment=node is None or "environment" in node.intervals)
 
     # ── APIs ─────────────────────────────────────────────────────────────────
 
@@ -90,7 +100,30 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
                 entry["gps_lat"], entry["gps_lon"] = gps["lat"], gps["lon"]
             out.append(entry)
         out.extend({**gps, "source": "gps"} for gps in reported.values())
+        uptimes = db.get_nodes_uptime()
+        for entry in out:
+            entry.update(uptimes.get(entry["node_id"], {}))
         return jsonify(out)
+
+    @app.route("/api/links")
+    def api_links():
+        """What the gateway hears straight from each node, without a hop, over
+        the last `hours` (default 24, at most a week): packets heard directly
+        with their mean RSSI and SNR, and packets that came through a relay.
+        The file's nodes are all listed, heard or not; the gateway is named."""
+        hours = max(1, min(request.args.get("hours", 24, type=int), 24 * 7))
+        nodes = deployment_nodes(cfg.deployment, log)
+        heard = {link["node_id"]: link for link in db.get_links(hours)}
+        out = []
+        for node in nodes:
+            if node.function == "gateway":
+                continue
+            link = heard.pop(node.node_id, None) or {"node_id": node.node_id, "direct": 0,
+                                                     "relayed": 0, "rssi": None, "snr": None}
+            out.append({**link, "node_label": node.name, "function": node.function})
+        out.extend({**link, "function": None} for link in heard.values())
+        gateway = next((n.name for n in nodes if n.function == "gateway"), "Gateway")
+        return jsonify({"hours": hours, "gateway": gateway, "links": out})
 
     @app.route("/api/recent/<node_id>/<field>")
     def api_recent(node_id, field):
