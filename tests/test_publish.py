@@ -26,6 +26,8 @@ class TestTopics(unittest.TestCase):
             "device": "meshtastic-testbed/node-1/device",
             "environment": "meshtastic-testbed/node-1/environment",
             "message": "meshtastic-testbed/node-1/message",
+            "nodeinfo": "meshtastic-testbed/node-1/nodeinfo",
+            "neighbor": "meshtastic-testbed/node-1/neighbor",
             "pdr": "meshtastic-testbed/node-1/pdr",
         })
 

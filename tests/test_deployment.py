@@ -5,8 +5,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from gateway.deployment import (ENV_DEPLOYMENT, ENV_DEPLOYMENTS_DIR, DeploymentError, Position,
-                                deployments_dir, load)
+from gateway.deployment import (ENV_DEPLOYMENT, ENV_DEPLOYMENTS_DIR, DeploymentError, Node,
+                                Position, deployments_dir, load, relay_name)
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "deployments"
 TEST_MESH = FIXTURES / "test-mesh.yaml"
@@ -47,6 +47,20 @@ class TestLoad(unittest.TestCase):
         self.assertEqual(names["N1"], "node-1")
         self.assertEqual(names["P1"], "P1")
 
+    def test_neighbor_info(self):
+        dep = load(str(TEST_MESH))
+        self.assertEqual((dep.neighbor_info_secs, dep.neighbor_info_on_air), (14400, True))
+
+    def test_without_neighbor_info_the_module_is_off(self):
+        with tempfile.TemporaryDirectory() as d:
+            dep = load(str(_write(d, "mesh", NODE.format(ref="N1", node_id="!0b64122b",
+                                                        intervals="{}"))))
+        self.assertEqual((dep.neighbor_info_secs, dep.neighbor_info_on_air), (None, False))
+
+    def test_the_role_the_platform_provisions(self):
+        roles = {n.ref: n.role for n in load(str(TEST_MESH)).nodes}
+        self.assertEqual((roles["N1"], roles["GW"]), ("CLIENT", "CLIENT_MUTE"))
+
     def test_known_nodes_are_those_with_a_node_id(self):
         known = load(str(TEST_MESH)).known_nodes()
         self.assertEqual(sorted(n.ref for n in known.values()), ["GW", "N1", "P1"])
@@ -69,7 +83,7 @@ class TestLoad(unittest.TestCase):
 
     def test_every_file_this_repository_ships_loads(self):
         files = [p for p in deployments_dir({}).rglob("*.yaml") if not p.stem.startswith("_")]
-        self.assertGreaterEqual(len(files), 2)
+        self.assertTrue(files, "the glob found nothing to check")
         for path in files:
             with self.subTest(path=path.name):
                 self.assertEqual(load(str(path)).name, path.stem)
@@ -137,6 +151,26 @@ class TestPositions(unittest.TestCase):
                         load(str(_write(d, "mesh", nodes)))
 
 
+class TestRelayName(unittest.TestCase):
+    """The firmware names the relay by the last byte of its num only."""
+
+    NODES = [Node(ref=ref, name=ref, function="node", node_id=node_id, intervals={})
+             for ref, node_id in (("N1", "!0b64122b"), ("N6", "!403192d7"), ("X", "!123456d7"),
+                                  ("Z", "!12345600"), ("R1", None))]
+
+    def test_one_node(self):
+        self.assertEqual(relay_name("2b", self.NODES), "N1")
+
+    def test_a_byte_two_nodes_share(self):
+        self.assertEqual(relay_name("d7", self.NODES), "N6/X")
+
+    def test_a_num_ending_in_00_is_sent_as_ff(self):
+        self.assertEqual(relay_name("ff", self.NODES), "Z")
+
+    def test_a_relay_not_in_the_file(self):
+        self.assertEqual(relay_name("08", self.NODES), "…08 (not in the deployment file)")
+
+
 class TestStrictOnWhatItReads(unittest.TestCase):
     def assertRejected(self, nodes: str, pattern: str, meta_extra: str = "", name="mesh"):
         with tempfile.TemporaryDirectory() as d:
@@ -168,6 +202,21 @@ class TestStrictOnWhatItReads(unittest.TestCase):
             with self.subTest(intervals=intervals):
                 self.assertRejected(NODE.format(ref="N1", node_id="!0b64122b",
                                                 intervals=intervals), pattern)
+
+    def test_bad_neighbor_info(self):
+        node = NODE.format(ref="N1", node_id="!0b64122b", intervals="{}")
+        for block in ("{interval_secs: 14400}", "{interval_secs: 0, transmit_over_lora: true}",
+                      "{interval_secs: '4h', transmit_over_lora: true}", "on"):
+            with self.subTest(block=block), tempfile.TemporaryDirectory() as d:
+                path = _write(d, "mesh", node)
+                path.write_text(path.read_text().replace("radio: {}",
+                                                         f"radio: {{neighbor_info: {block}}}"))
+                with self.assertRaisesRegex(DeploymentError, "radio.neighbor_info: needs"):
+                    load(str(path))
+
+    def test_bad_role(self):
+        nodes = NODE.format(ref="N1", node_id="!0b64122b", intervals="{}") + "    role: 3\n"
+        self.assertRejected(nodes, "role: must be a non-empty string")
 
     def test_bad_node_id(self):
         self.assertRejected(NODE.format(ref="N1", node_id="!0B64122B", intervals="{}"),

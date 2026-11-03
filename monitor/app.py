@@ -1,5 +1,5 @@
 """The dashboard's pages and JSON API: / and /map, /graph, /messages,
-/dashboard, /api/nodes, /api/links, /api/messages and
+/dashboard, /api/nodes, /api/links, /api/neighbors, /api/messages and
 /api/recent/<node_id>/<field>.
 
 A query that fails answers 503 with the reason; it never answers an empty list,
@@ -12,7 +12,7 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO
 
-from gateway.deployment import Deployment, DeploymentError, Node, load
+from gateway.deployment import Deployment, DeploymentError, Node, load, relay_name
 from monitor.param import TOTAL_SAMPLES_48HRS, Config
 from monitor.utils import ALL_FIELDS, NODE_ID_RE, DatabaseError, for_browser
 
@@ -129,10 +129,15 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
         not noise. That is why both numbers are returned instead of blended.
         A planned position is a desk choice, shown only until there is anything
         better; a node not provisioned yet has no node_id.
+
+        Each node also carries its last uptime, and what it last said it is
+        (NODEINFO_APP: hardware, role, name) with the file's role beside the
+        reported one, so the map can show where they differ.
         """
         reported = {n["node_id"]: n for n in db.get_nodes_position()}
+        nodes = deployment_nodes(cfg.deployment, log)
         out = []
-        for node in deployment_nodes(cfg.deployment, log):
+        for node in nodes:
             gps = reported.pop(node.node_id, None)
             if node.surveyed:
                 pos, source = node.surveyed, "surveyed"
@@ -149,17 +154,22 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
                 entry["gps_lat"], entry["gps_lon"] = gps["lat"], gps["lon"]
             out.append(entry)
         out.extend({**gps, "source": "gps"} for gps in reported.values())
-        uptimes = db.get_nodes_uptime()
+        uptimes, infos = db.get_nodes_uptime(), db.get_nodes_info()
+        roles = {n.node_id: n.role for n in nodes if n.node_id and n.role}
         for entry in out:
             entry.update(uptimes.get(entry["node_id"], {}))
+            entry.update(infos.get(entry["node_id"], {}))
+            if "role" in entry and entry["node_id"] in roles:
+                entry["file_role"] = roles[entry["node_id"]]
         return jsonify(out)
 
     @app.route("/api/links")
     def api_links():
         """What the gateway hears straight from each node, without a hop, over
         the last `hours` (default 24, at most a week): packets heard directly
-        with their mean RSSI and SNR, and packets that came through a relay.
-        The file's nodes are all listed, heard or not; the gateway is named."""
+        with their mean RSSI and SNR, and packets that came through a relay,
+        with the last relay of each (`via`, most packets first). The file's
+        nodes are all listed, heard or not; the gateway is named."""
         hours = max(1, min(request.args.get("hours", 24, type=int), 24 * 7))
         nodes = deployment_nodes(cfg.deployment, log)
         heard = {link["node_id"]: link for link in db.get_links(hours)}
@@ -171,8 +181,32 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
                                                      "relayed": 0, "rssi": None, "snr": None}
             out.append({**link, "node_label": node.name, "function": node.function})
         out.extend({**link, "function": None} for link in heard.values())
-        gateway = next((n.name for n in nodes if n.function == "gateway"), "Gateway")
-        return jsonify({"hours": hours, "gateway": gateway, "links": out})
+        relays = db.get_relays(hours)
+        for link in out:
+            by_relay = sorted(relays.get(link["node_id"], {}).items(), key=lambda kv: -kv[1])
+            link["via"] = [{"relay_node": relay, "name": relay_name(relay, nodes),
+                            "packets": packets} for relay, packets in by_relay]
+        gateway = next((n for n in nodes if n.function == "gateway"), None)
+        return jsonify({"hours": hours, "gateway": gateway.name if gateway else "Gateway",
+                        "gateway_id": gateway.node_id if gateway else None, "links": out})
+
+    @app.route("/api/neighbors")
+    def api_neighbors():
+        """What each node says it hears without a hop (NeighborInfo): its latest
+        report, for twice the file's interval — as long as the firmware keeps a
+        silent neighbour. `interval_s` null means the file has the module off,
+        `on_air` false that the reports never leave the radios: the graph says
+        so instead of showing a mesh with no links."""
+        dep = current_deployment(cfg.deployment, log)
+        interval = dep.neighbor_info_secs if dep else None
+        on_air = bool(dep and dep.neighbor_info_on_air)
+        reports = db.get_neighbor_reports(2 * interval) if interval and on_air else []
+        names = {n.node_id: n.name for n in (dep.nodes if dep else ()) if n.node_id}
+        for report in reports:
+            report["node_label"] = names.get(report["node_id"], report["node_label"])
+            for neighbor in report["neighbors"]:
+                neighbor["node_label"] = names.get(neighbor["node_id"])    # None: not in the file
+        return jsonify({"interval_s": interval, "on_air": on_air, "reports": reports})
 
     @app.route("/api/messages")
     def api_messages():

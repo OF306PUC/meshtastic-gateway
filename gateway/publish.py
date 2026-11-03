@@ -22,7 +22,7 @@ __all__ = ["ENV_TOPIC_PREFIX", "KINDS", "MQTTConnector", "describe_refusal", "to
 ENV_TOPIC_PREFIX = "MQTT_TOPIC_PREFIX"
 
 # Each kind is a Telegraf input; a kind outside this list reaches no measurement.
-KINDS = ("position", "device", "environment", "message", "pdr")
+KINDS = ("position", "device", "environment", "message", "nodeinfo", "neighbor", "pdr")
 
 # The prefix is also substituted into Telegraf's config and the broker ACL
 # (mqtt/entrypoint.sh checks the same pattern), so it stays plain.

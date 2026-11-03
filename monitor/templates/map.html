@@ -136,6 +136,18 @@
                             up.appendChild(when);
                             popup.appendChild(up);
                         }
+                        if (n.hw_model || n.role) {
+                            // What the radio last said it is (NODEINFO_APP).
+                            const radio = document.createElement("div");
+                            radio.textContent = [n.hw_model, n.role].filter(Boolean).join(" · ");
+                            if (n.file_role && n.role !== n.file_role) {
+                                const differs = document.createElement("small");
+                                differs.className = "warn";
+                                differs.textContent = ` · the file says ${n.file_role}`;
+                                radio.appendChild(differs);
+                            }
+                            popup.appendChild(radio);
+                        }
                         if (n.node_id) {
                             const link = document.createElement("a");
                             link.href = `/dashboard?node=${encodeURIComponent(n.node_id)}`;

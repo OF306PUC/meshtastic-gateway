@@ -9,7 +9,8 @@ divided by meta.cadence_scale; site.surveyed and site.planned (for the
 dashboard's map) are all-null until filled in, and never confused: planned is
 where a node should go, surveyed where it was measured on site. `sha256` is the
 hash of the file's bytes, the same one the platform records, so the two copies
-can be compared (G10).
+can be compared (G10). radio.neighbor_info says whether the nodes report their
+neighbours on air, and how often; cadence_scale does not apply to it.
 """
 from __future__ import annotations
 
@@ -18,14 +19,14 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 import yaml
 
 from gateway.decode import FLOW_KINDS
 
 __all__ = ["ENV_DEPLOYMENT", "ENV_DEPLOYMENTS_DIR", "Deployment", "DeploymentError",
-           "Node", "Position", "deployments_dir", "load", "parse"]
+           "Node", "Position", "deployments_dir", "load", "parse", "relay_name"]
 
 ENV_DEPLOYMENT = "MESH_DEPLOYMENT"
 ENV_DEPLOYMENTS_DIR = "MESH_DEPLOYMENTS_DIR"
@@ -53,6 +54,7 @@ class Node:
     function: str
     node_id: str | None
     intervals: Mapping[str, int]       # EFFECTIVE cadences, cadence_scale applied
+    role: str | None = None            # the Meshtastic role the platform provisions
     surveyed: Position | None = None   # site.surveyed: measured on site
     planned: Position | None = None    # site.planned: chosen at a desk, not a measurement
 
@@ -71,6 +73,11 @@ class Deployment:
     modem_preset: str | None = None
     channel_num: int | None = None
     channels: Mapping[int, str] = field(default_factory=dict)   # index -> name
+    # radio.neighbor_info: the report interval, None when the block is absent
+    # (the module is off); on_air is its transmit_over_lora, without which the
+    # reports stay on each radio's USB and BLE and the gateway hears none.
+    neighbor_info_secs: int | None = None
+    neighbor_info_on_air: bool = False
 
     def known_nodes(self) -> dict[str, Node]:
         """{node_id: Node} for every node whose id has been recorded."""
@@ -146,6 +153,18 @@ def parse(data: Any, *, path: Path, sha256: str) -> Deployment:
             continue
         channels[index] = ch_name
 
+    neighbor_info = radio.get("neighbor_info")
+    neighbor_secs, on_air = None, False
+    if neighbor_info is not None:
+        secs = neighbor_info.get("interval_secs") if isinstance(neighbor_info, dict) else None
+        air = neighbor_info.get("transmit_over_lora") if isinstance(neighbor_info, dict) else None
+        if (not isinstance(secs, int) or isinstance(secs, bool) or secs < 1
+                or not isinstance(air, bool)):
+            problems.append(f"radio.neighbor_info: needs interval_secs (a positive int) and "
+                            f"transmit_over_lora (true or false), got {neighbor_info!r}")
+        else:
+            neighbor_secs, on_air = secs, air
+
     raw_nodes = data.get("nodes")
     if not isinstance(raw_nodes, list) or not raw_nodes:
         problems.append("nodes: expected a non-empty list")
@@ -163,7 +182,17 @@ def parse(data: Any, *, path: Path, sha256: str) -> Deployment:
     if problems:
         raise DeploymentError(path, problems)
     return Deployment(name=name, path=path, sha256=sha256, cadence_scale=scale,
-                      nodes=tuple(nodes), channels=channels, **described)
+                      nodes=tuple(nodes), channels=channels, neighbor_info_secs=neighbor_secs,
+                      neighbor_info_on_air=on_air, **described)
+
+
+def relay_name(relay_node: str, nodes: Iterable[Node]) -> str:
+    """Which node a packet's relay_node is. The firmware sends only the last byte
+    of the relaying radio's num, and 0xff for a num that ends in 00, so two
+    nodes may share it: both are named."""
+    names = [n.name for n in nodes
+             if n.node_id and (n.node_id[-2:] if n.node_id[-2:] != "00" else "ff") == relay_node]
+    return "/".join(names) or f"…{relay_node} (not in the deployment file)"
 
 
 def _node(raw: Any, where: str, scale: int, problems: list[str]) -> Node | None:
@@ -186,12 +215,18 @@ def _node(raw: Any, where: str, scale: int, problems: list[str]) -> Node | None:
     function = raw.get("function")
     if not isinstance(function, str) or not function:
         problems.append(f"{where}.function: required")
+    role = raw.get("role")
+    if role is not None and (not isinstance(role, str) or not role):
+        problems.append(f"{where}.role: must be a non-empty string or absent, "
+                        f"got {role!r}")
+        role = None
     site = raw.get("site")
     if site is not None and not isinstance(site, dict):
         problems.append(f"{where}.site: expected a mapping or null")
         site = None
     return Node(ref=ref, name=label or ref, function=function or "", node_id=node_id,
                 intervals=_intervals(raw.get("intervals"), f"{where}.intervals", scale, problems),
+                role=role,
                 surveyed=_position((site or {}).get("surveyed"), f"{where}.site.surveyed", problems),
                 planned=_position((site or {}).get("planned"), f"{where}.site.planned", problems))
 

@@ -7,6 +7,7 @@ KNOWN_NODE_NUM = 0x0B64122B
 KNOWN_NODE_LABEL = "node-1"
 GATEWAY_ID = "!aabbccdd"
 GATEWAY_NUM = 0xAABBCCDD
+RELAY_BYTE = 0x44                      # P1 (!11223344) in test-mesh.yaml
 
 # PBX ids are BIG-ENDIAN uint32 phone numbers without country code (the PBX
 # logs them as "+56<uint32>"), NOT Meshtastic node ids. Both numbers are
@@ -25,6 +26,8 @@ def next_pkt_id():
 
 
 def _envelope(pkt_id, rssi, snr, hop_limit, hop_start):
+    """The radio heard sets relayNode to the last byte of its num: the sender's
+    own at hop 0, a relay's otherwise."""
     return {
         "fromId": KNOWN_NODE_ID,
         "from": KNOWN_NODE_NUM,
@@ -33,6 +36,7 @@ def _envelope(pkt_id, rssi, snr, hop_limit, hop_start):
         "rxSnr": snr,
         "hopLimit": hop_limit,
         "hopStart": hop_start,
+        "relayNode": KNOWN_NODE_NUM & 0xFF if hop_limit == hop_start else RELAY_BYTE,
     }
 
 
@@ -64,6 +68,34 @@ def app_text_packet(text: str, to_id=None, pkt_id=None):
     pkt = _envelope(pkt_id, -101, -2.25, 3, 3)
     pkt["to"], pkt["toId"] = (0xFFFFFFFF, "^all") if to_id is None else (int(to_id[1:], 16), to_id)
     pkt["decoded"] = {"portnum": "TEXT_MESSAGE_APP", "payload": text.encode(), "text": text}
+    return pkt
+
+
+def nodeinfo_packet(role=None, hw_model="SEEED_SOLAR_NODE", long_name="Meshtastic 122b",
+                    pkt_id=None):
+    """How a node introduces itself, as the library hands it over: the MAC in
+    base64, and no `role` when it is CLIENT (role 0, which protobuf3 omits)."""
+    user = {"id": KNOWN_NODE_ID, "longName": long_name, "shortName": "122b",
+            "macaddr": "wcgLZBIr", "hwModel": hw_model,
+            "publicKey": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="}
+    user = {k: v for k, v in {**user, "role": role}.items() if v is not None}
+    pkt = _envelope(pkt_id, -97, 4.25, 3, 3)
+    pkt["to"], pkt["toId"] = 0xFFFFFFFF, "^all"
+    pkt["decoded"] = {"portnum": "NODEINFO_APP", "payload": b"\n\t!0b64122b", "user": user}
+    return pkt
+
+
+def neighbor_packet(neighbors=((0x11223344, 6.5), (0xDEADBEEF, -3.25)), interval=14400,
+                    pkt_id=None):
+    """A NeighborInfo report, as the library hands it over: node nums as ints,
+    and no `snr` for a neighbour heard at exactly 0.0 dB."""
+    info = {"nodeId": KNOWN_NODE_NUM, "lastSentById": KNOWN_NODE_NUM,
+            "nodeBroadcastIntervalSecs": interval,
+            "neighbors": [{"nodeId": num, **({"snr": snr} if snr else {})}
+                          for num, snr in neighbors]}
+    pkt = _envelope(pkt_id, -104, -1.5, 2, 3)
+    pkt["to"], pkt["toId"] = 0xFFFFFFFF, "^all"
+    pkt["decoded"] = {"portnum": "NEIGHBORINFO_APP", "payload": b"\x08", "neighborinfo": info}
     return pkt
 
 

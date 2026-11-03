@@ -99,17 +99,50 @@ class TestApplicationPayloads(unittest.TestCase):
         self.assertEqual(d.kind, "text")
         self.assertIsNone(d.text.text)
 
+    def test_nodeinfo(self):
+        d = decode(pk.nodeinfo_packet(role="ROUTER"))
+        self.assertEqual((d.kind, d.flows), ("nodeinfo", ()))
+        info = d.nodeinfo
+        self.assertEqual((info.long_name, info.short_name, info.hw_model, info.role, info.mac),
+                         ("Meshtastic 122b", "122b", "SEEED_SOLAR_NODE", "ROUTER",
+                          "C1:C8:0B:64:12:2B"))
+        self.assertIn("publicKey", info.extra, "kept, not mapped")
+
+    def test_nodeinfo_without_a_role_is_a_client(self):
+        """CLIENT is role 0: protobuf3 omits it, and it is a real role."""
+        self.assertEqual(decode(pk.nodeinfo_packet()).nodeinfo.role, "CLIENT")
+
+    def test_nodeinfo_hardware_unset_stays_none(self):
+        self.assertIsNone(decode(pk.nodeinfo_packet(hw_model=None)).nodeinfo.hw_model)
+
+    def test_neighbor_report(self):
+        d = decode(pk.neighbor_packet(neighbors=((0x11223344, 6.5), (0, 0.0), (0x403192D7, 0.0))))
+        self.assertEqual((d.kind, d.flows), ("neighborinfo", ()))
+        report = d.neighborinfo
+        self.assertEqual((report.node_id, report.interval_s), (pk.KNOWN_NODE_ID, 14400))
+        self.assertEqual([(n.node_id, n.snr) for n in report.neighbors],
+                         [("!11223344", 6.5), ("!403192d7", 0.0)],
+                         "num 0 is the firmware's placeholder; an omitted SNR is 0.0 dB")
+        self.assertIn("lastSentById", report.extra)
+
+    def test_a_mac_that_is_not_six_bytes_is_none(self):
+        for mac in ("", "AQID", "not base64!"):
+            with self.subTest(mac=mac):
+                pkt = pk.nodeinfo_packet()
+                pkt["decoded"]["user"]["macaddr"] = mac
+                self.assertIsNone(decode(pkt).nodeinfo.mac)
+
 
 class TestNothingDroppedSilently(unittest.TestCase):
     def test_unknown_portnum_lands_in_raw_and_is_counted(self):
         pkt = pk.env_packet()
-        pkt["decoded"]["portnum"] = "NEIGHBORINFO_APP"
+        pkt["decoded"]["portnum"] = "TRACEROUTE_APP"
         d = decode(pkt)
         self.assertEqual(d.kind, "other")
         self.assertIs(d.raw, pkt)
         stats = DecodeStats()
         stats.record(d)
-        self.assertEqual(stats.unknown_portnum["NEIGHBORINFO_APP"], 1)
+        self.assertEqual(stats.unknown_portnum["TRACEROUTE_APP"], 1)
 
     def test_unmapped_telemetry_variant_is_counted(self):
         pkt = pk.env_packet()

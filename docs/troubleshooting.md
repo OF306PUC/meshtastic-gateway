@@ -129,6 +129,10 @@ printed once, and the periodic `[GW] Report` counts what was discarded and why.
 | Warning | Usual cause |
 |---|---|
 | `!xxxxxxxx is not in the deployment file` | A node missing from this copy, or another mesh on the same channel |
+| `!xxxxxxxx, not in the deployment file, is a <hardware> ..., MAC ...` | The same radio, introducing itself: its hardware and MAC say which one it is. If it belongs to this mesh, its `node_id` and `mac` go in the platform's file. The report lists it under `unknown_radios` |
+| `<node> hears !xxxxxxxx (SNR ...), which is not in the deployment file` | A neighbour from a NeighborInfo report: a radio of this mesh with no `node_id` in the file yet (it may be too far for the gateway to hear it itself), or another mesh nearby |
+| `<node> reports its neighbours every N s, but the deployment file says M s` | The radio was provisioned from another file: provision it again from the platform |
+| `<node> runs as <ROLE>, but the deployment file says <ROLE>` | The radio was provisioned from another file, or its role was changed by hand (app or CLI): provision it again from the platform. The map's popup shows the same difference |
 | `sends <flow> but ... declares no cadence` | The radio emits a flow this copy does not declare: the copies differ, or the radio was provisioned from a different file |
 | `arrived ... inside its N s cadence` | `cadence_violated`: smart position broadcast left on, or a cadence that differs from the radio's. **The PDR is invalid until fixed** |
 | `this radio ... is not in` / `not 'gateway'` / `not CLIENT_MUTE` | See [the wrong serial port](#the-gateway-is-on-the-wrong-serial-port) |

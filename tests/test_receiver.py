@@ -100,10 +100,11 @@ class TestFilteringGuards(ReceiverCase):
 
 class TestMalformedPackets(ReceiverCase):
     def test_nothing_raises_and_everything_is_counted(self):
-        nodeinfo = pk.env_packet()
-        nodeinfo["decoded"]["portnum"] = "NODEINFO_APP"
+        ack = pk.env_packet()
+        ack["decoded"] = {"portnum": "ROUTING_APP", "requestId": 7,
+                          "routing": {"errorReason": "NONE"}}
         no_decoded = {"fromId": pk.KNOWN_NODE_ID, "from": pk.KNOWN_NODE_NUM, "id": 1}
-        self.receive(None, {}, no_decoded, nodeinfo)
+        self.receive(None, {}, no_decoded, ack)
         self.assertEqual(self.client.sent, [])
         self.assertEqual(dict(self.rx.errors), {})
         self.assertEqual(self.rx.discarded["empty"], 3)
@@ -113,10 +114,10 @@ class TestMalformedPackets(ReceiverCase):
 class TestPublishedPayloads(ReceiverCase):
     def test_topics_carry_prefix_label_and_kind(self):
         self.receive(pk.env_packet(), pk.device_packet(), pk.position_packet(),
-                     pk.private_packet(pk.pbx_frame()))
+                     pk.private_packet(pk.pbx_frame()), pk.nodeinfo_packet())
         self.assertEqual([t for t, _ in self.client.sent], [
             "testbed/node-1/environment", "testbed/node-1/device",
-            "testbed/node-1/position", "testbed/node-1/message"])
+            "testbed/node-1/position", "testbed/node-1/message", "testbed/node-1/nodeinfo"])
 
     def test_received_at_is_the_wall_clock(self):
         self.receive(pk.env_packet())
@@ -255,11 +256,91 @@ class TestMessageLog(ReceiverCase):
         self.receive(pk.private_packet(pk.pbx_frame(content=b"hola")))
         self.assertEqual(self.sent("message")[0]["text"], "hola")
 
+    def test_a_relayed_message_names_its_last_relay(self):
+        self.receive(pk.private_packet(pk.pbx_frame()))
+        self.assertIn("(PRIVATE_APP, ch 0, hop 1, last relay P1, rssi", self.messages()[0])
+
+    def test_a_message_heard_straight_from_its_sender_names_no_relay(self):
+        self.receive(pk.app_text_packet("hola"))
+        self.assertNotIn("relay", self.messages()[0])
+
     def test_an_app_message_is_logged_between_nodes(self):
         self.receive(pk.app_text_packet("hola a todos"))
         [line] = self.messages()
         self.assertIn(f"{pk.KNOWN_NODE_ID} -> broadcast via node-1 (TEXT_MESSAGE_APP", line)
         self.assertTrue(line.endswith(': "hola a todos"'), line)
+
+
+class TestNodeInfo(ReceiverCase):
+    def test_published_every_time_logged_once(self):
+        self.receive(pk.nodeinfo_packet(), pk.nodeinfo_packet())
+        self.assertEqual(len(self.sent("nodeinfo")), 2)
+        self.assertEqual([line for line in self.logs if "introduces" in line or " is a " in line],
+                         ['[MESH] node-1 (!0b64122b) is a SEEED_SOLAR_NODE (CLIENT), '
+                          'MAC C1:C8:0B:64:12:2B, named "Meshtastic 122b" "122b"'])
+        self.assertEqual(self.warnings(""), [])
+
+    def test_a_change_is_logged_again(self):
+        self.receive(pk.nodeinfo_packet(), pk.nodeinfo_packet(long_name="pozo 31"))
+        self.assertEqual(len([line for line in self.logs if " is a " in line]), 2)
+
+    def test_a_role_other_than_the_files_is_warned(self):
+        self.receive(pk.nodeinfo_packet(role="ROUTER"))
+        [warning] = self.warnings("runs as ROUTER")
+        self.assertIn("the deployment file says CLIENT", warning)
+        self.assertEqual(len(self.sent("nodeinfo")), 1, "published all the same")
+
+    def test_an_unknown_radio_says_which_it_is(self):
+        pkt = pk.nodeinfo_packet()
+        pkt["fromId"], pkt["from"] = "!deadbeef", 0xDEADBEEF
+        self.receive(pkt, dict(pkt, id=pk.next_pkt_id()))
+        self.assertEqual(self.client.sent, [])
+        [warning] = self.warnings("!deadbeef, not in the deployment file, is a SEEED_SOLAR_NODE")
+        self.assertIn("MAC C1:C8:0B:64:12:2B", warning)
+        self.assertEqual(self.rx.report()["unknown_radios"],
+                         {"!deadbeef": 'a SEEED_SOLAR_NODE (CLIENT), MAC C1:C8:0B:64:12:2B, '
+                                       'named "Meshtastic 122b" "122b"'})
+
+    def test_names_cannot_reach_the_terminal_raw(self):
+        self.receive(pk.nodeinfo_packet(long_name="\x1b[31mN1\nforged"))
+        self.assertFalse(any("\x1b" in line or "\n" in line for line in self.logs))
+
+
+class TestNeighborInfo(ReceiverCase):
+    def setUp(self):
+        super().setUp()
+        self.rx = self.make(neighbor_info_secs=14400)
+
+    def test_one_payload_per_neighbour(self):
+        self.receive(pk.neighbor_packet())
+        self.assertEqual([(p["neighbor_id"], p["neighbor_snr"]) for p in self.sent("neighbor")],
+                         [("!11223344", 6.5), ("!deadbeef", -3.25)])
+
+    def test_logged_when_the_set_heard_changes(self):
+        self.receive(pk.neighbor_packet(), pk.neighbor_packet(neighbors=((0x11223344, 2.0),
+                                                                         (0xDEADBEEF, 1.0))),
+                     pk.neighbor_packet(neighbors=((0x11223344, 2.0),)))
+        self.assertEqual([line for line in self.logs if "hears without a hop" in line], [
+            "[MESH] node-1 hears without a hop: P1 (6.50 dB), !deadbeef (-3.25 dB)",
+            "[MESH] node-1 hears without a hop: P1 (2.00 dB)"])
+
+    def test_a_neighbour_missing_from_the_file_is_warned_once(self):
+        self.receive(pk.neighbor_packet(), pk.neighbor_packet())
+        [warning] = self.warnings("node-1 hears !deadbeef")
+        self.assertIn("not in the deployment file", warning)
+        self.assertEqual(self.warnings("hears !11223344"), [])
+
+    def test_an_interval_other_than_the_files_is_warned(self):
+        self.receive(pk.neighbor_packet(interval=21600))
+        [warning] = self.warnings("every 21600 s")
+        self.assertIn("the deployment file says 14400 s", warning)
+
+    def test_an_unknown_reporter_is_counted_not_published(self):
+        pkt = pk.neighbor_packet()
+        pkt["fromId"], pkt["from"] = "!deadbeef", 0xDEADBEEF
+        self.receive(pkt)
+        self.assertEqual(self.client.sent, [])
+        self.assertEqual(self.rx.discarded["unknown_sender"], 1)
 
 
 class TestStartupSettling(ReceiverCase):
@@ -327,6 +408,7 @@ class TestFailsLoudly(ReceiverCase):
         self.assertEqual(report["discarded"], {"duplicate": 1, "empty": 1})
         self.assertEqual(report["heard"]["packets"], 3)
         self.assertEqual((report["mqtt_queued"], report["mqtt_dropped"]), (0, 0))
+        self.assertEqual(report["unknown_radios"], {})
 
 
 if __name__ == "__main__":

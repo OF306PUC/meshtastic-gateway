@@ -91,6 +91,23 @@ radio:
   tx_power_policy: declared
   position_precision: 32         # full precision: the sender masks the rest away for good
   rx_boosted_gain: true
+  # Background beacons, in seconds. Not `intervals` flows: NodeInfo cannot be
+  # switched off and both run at hours scale, so no estimator measures a gap
+  # against them. They are written explicitly anyway, OFF case included, or a
+  # radio reused from another mesh keeps that mesh's cadence in silence.
+  #
+  # 2 h for NodeInfo (firmware default 3 h, floor 1 h): names, roles and public
+  # keys reach a rebooted or replaced node sooner, and the cost is ~0.18 % duty
+  # against the 8.9 % the 120 s telemetry already spends.
+  node_info_secs: 7200
+  # NeighborInfo ON and ON AIR, at the firmware's 4 h floor — the fastest it
+  # allows, which is still ~0.16 % duty. Anything slower buys nothing measurable
+  # and leaves dead neighbours in the table: the firmware drops a neighbour only
+  # after twice this interval. Gives the adjacency graph (node ids + SNR, up to
+  # 10 per packet) that the link analysis has no other source for.
+  neighbor_info:
+    interval_secs: 14400
+    transmit_over_lora: true
   # Chile, SUBTEL Res. Ex. 1.985/2017 (Norma Técnica de Equipos de Alcance
   # Reducido), read as EIRP — the conservative reading of "potencia radiada".
   eirp_caps:

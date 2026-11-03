@@ -12,6 +12,7 @@ radio:                             # ignored by the gateway
   channel_num: 45
   channels:
     - {index: 0, name: telemetry, psk_env: TEST_PRIMARY_PSK}
+  neighbor_info: {interval_secs: 14400, transmit_over_lora: true}
 
 nodes:
   - ref: N1

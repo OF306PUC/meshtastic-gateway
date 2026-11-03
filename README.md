@@ -34,7 +34,7 @@ Then open `http://<gateway-host>/` and log in as `dashboard`.
 | Path | What it is |
 |---|---|
 | `main.py`, `gateway/` | The receiver: decode, deduplicate, PDR, publish (`gateway-receiver` container) |
-| `monitor/` | The dashboard: map, graph of the gateway's direct links, per-node charts, live feed (`web` container, `python -m monitor`) |
+| `monitor/` | The dashboard: map, graph of the links (to the gateway, and between nodes from NeighborInfo), messages, per-node charts, live feed (`web` container, `python -m monitor`) |
 | `proxy/`, `mqtt/`, `telegraf/` | The login in front of the dashboard; broker config, ACL and credential generator; topic → measurement mapping |
 | `docker-compose.yaml`, `Dockerfile` | The six services |
 | `deployments/` | The mesh description, shared with the platform |
@@ -60,4 +60,7 @@ python3 -m venv .venv
   makes its own WiFi; switching between it and the office network.
 - [`docs/architecture/pdr-cadence-tracker.md`](docs/architecture/pdr-cadence-tracker.md)
   — how the delivery ratio is estimated (in Spanish).
+- [`docs/architecture/message-delivery.md`](docs/architecture/message-delivery.md)
+  — what the gateway can and cannot confirm about a message between two
+  access points, and the receipt that would confirm it.
 - [`docs/session-log.md`](docs/session-log.md) — what was done, when, and why.

@@ -43,6 +43,13 @@ def main() -> int:
           "(G10, deployments/README.md)")
     print(f"[GW] Nodes: {', '.join(f'{n.name}={i}' for i, n in nodes.items())}")
     print(f"[GW] Cadences: { {n.name: dict(n.intervals) for n in nodes.values() if n.intervals} }")
+    if dep.neighbor_info_secs is None:
+        print("[GW] NeighborInfo: off in the deployment file; no node reports its neighbours")
+    elif not dep.neighbor_info_on_air:
+        print("[GW] NeighborInfo: transmit_over_lora is false; the reports stay on each "
+              "radio and none reaches the gateway")
+    else:
+        print(f"[GW] NeighborInfo: every {dep.neighbor_info_secs} s, on air")
     print(f"[GW] PDR windows (s): {dict(cfg.pdr_window_sec)}; sweep every {cfg.sweep_interval_sec} s")
     print(f"[GW] Publishing {cfg.topic_prefix}/<node>/<kind> to "
           f"{cfg.broker_address}:{cfg.broker_port} as {cfg.client_id}")
@@ -64,7 +71,8 @@ def main() -> int:
         print(f"[GW] WARNING: {warning}")
 
     receiver = Receiver(mqtt, nodes, pdr_window_sec=cfg.pdr_window_sec,
-                        my_id=my_id, my_num=my_num, settle_sec=STARTUP_SETTLE_SEC)
+                        my_id=my_id, my_num=my_num, settle_sec=STARTUP_SETTLE_SEC,
+                        neighbor_info_secs=dep.neighbor_info_secs)
     lost = threading.Event()
 
     def on_lost(interface=None):

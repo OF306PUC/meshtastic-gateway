@@ -57,13 +57,24 @@ names were captured from the running monorepo code, and the golden tests
 
 | Payload | Fields |
 |---|---|
-| `environment` | `node_id, node_label, temperature, humidity, rssi, snr, hop, channel, device_ts, received_at` |
-| `device` | `node_id, node_label, battery_level, voltage, channel_util, air_util_tx, uptime_seconds, rssi, snr, hop, channel, device_ts, received_at` |
-| `position` | `node_id, node_label, latitude, longitude, altitude, rssi, snr, hop, channel, device_ts, received_at` |
-| `message` | `node_id, node_label, portnum, pkt_id, origin, src_id, dst_id, fw_ver, content_len, payload_len, malformed, text` or `content_hex`, `rssi, snr, hop, channel, received_at` |
+| `environment` | `node_id, node_label, temperature, humidity, rssi, snr, hop, relay_node, channel, device_ts, received_at` |
+| `device` | `node_id, node_label, battery_level, voltage, channel_util, air_util_tx, uptime_seconds, rssi, snr, hop, relay_node, channel, device_ts, received_at` |
+| `position` | `node_id, node_label, latitude, longitude, altitude, rssi, snr, hop, relay_node, channel, device_ts, received_at` |
+| `message` | `node_id, node_label, portnum, pkt_id, origin, src_id, dst_id, fw_ver, content_len, payload_len, malformed, text` or `content_hex`, `rssi, snr, hop, relay_node, channel, received_at` |
+| `nodeinfo` | `node_id, node_label, long_name, short_name, hw_model, role, mac, rssi, snr, hop, relay_node, channel, received_at` |
+| `neighbor` | `node_id, node_label, neighbor_id, neighbor_snr, neighbor_count, interval_s, pkt_id, rssi, snr, hop, relay_node, channel, received_at` |
 | PDR, on the three telemetry payloads and the `pdr` topic | `pdr, pdr_window, pdr_window_slots, pdr_window_filled, rx_count, missed_est, missed_now, early_count, cadence_violated, gap_s` (the `pdr` topic adds `node_label, flow, source`) |
 
 The field is **`humidity`**, not the protobuf's `relativeHumidity`.
+
+**`relay_node`** (2026-11-02) is the radio the gateway heard transmit the copy
+it received: the sender itself at `hop` 0, its last relay otherwise. The
+firmware gives only the last byte of that radio's node num (`0xff` for a num
+that ends in `00`), published in the hex of a node id: `"d7"` for `!403192d7`.
+Two nodes can share it; `gateway.deployment.relay_name()` names every node of
+the file it fits. Omitted when the firmware gives none (older than 2.6). For a
+relayed packet, `rssi` and `snr` measure the relay's transmission, not the
+sender's.
 
 A message is shaped differently, on purpose:
 
@@ -85,6 +96,26 @@ receiver's terminal (`[MSG]` lines, control characters escaped). A
 `TEXT_MESSAGE_APP` is a PBX frame when it parses as one; otherwise it is an
 app's message if it is UTF-8 that does not start with a control character (a
 PBX frame starts with its version byte); anything else is `malformed`.
+
+`nodeinfo` is what a node says it is (`NODEINFO_APP`): every node sends it
+every `radio.node_info_secs` of the deployment file (firmware default 3 h;
+2 h in rapa-nui) and when another radio asks for it. No
+`device_ts` and no PDR fields: it has no cadence to measure. `hw_model` and
+`role` are Meshtastic enum names (`SEEED_SOLAR_NODE`, `CLIENT_MUTE`); `role` is
+always present, because protobuf3 omits role 0 and role 0 is `CLIENT`; the
+names, `hw_model` and `mac` are omitted when the radio does not send them (G2).
+The firmware version is not in it.
+
+`neighbor` is one payload per neighbour of a NeighborInfo report
+(`NEIGHBORINFO_APP`): `neighbor_id` is a radio the node hears without a hop,
+and `neighbor_snr` the SNR it hears it at. `snr`, as everywhere, is the
+gateway's own reception of the report. `pkt_id` ties one report's neighbours
+together, and a neighbour missing from a node's latest report is one it no
+longer hears. A node reports every `radio.neighbor_info.interval_secs` of the
+deployment file (firmware floor 4 h), and only with `transmit_over_lora: true`
+does the report go on air. The firmware forgets a silent neighbour after twice
+the interval, so the dashboard keeps a report for as long. No PDR fields: the
+platform does not declare it among a node's `intervals`.
 
 ### 2.2 Two rules that look like bugs and are not
 
@@ -116,6 +147,8 @@ sweeps).
 {prefix}/{node_label}/device
 {prefix}/{node_label}/environment
 {prefix}/{node_label}/message
+{prefix}/{node_label}/nodeinfo
+{prefix}/{node_label}/neighbor
 {prefix}/{node_label}/pdr
 ```
 
@@ -132,13 +165,17 @@ consumes it (G4).
 
 | Measurement | From topics | Tags |
 |---|---|---|
-| `telemetry` | `position`, `device`, `environment` | `node_id`, `node_label` |
-| `message` | `message` | `node_id`, `node_label`, `portnum`, `channel`, `origin`, `src_id`, `dst_id` (fields include the string `text`/`content_hex`: `json_string_fields`, or Telegraf drops them) |
+| `telemetry` | `position`, `device`, `environment` | `node_id`, `node_label`, `relay_node` |
+| `message` | `message` | `node_id`, `node_label`, `portnum`, `channel`, `origin`, `src_id`, `dst_id`, `relay_node` (fields include the string `text`/`content_hex`: `json_string_fields`, or Telegraf drops them) |
+| `nodeinfo` | `nodeinfo` | `node_id`, `node_label`, `relay_node` (every other field but `rssi`, `snr`, `hop` and `channel` is a string: `json_string_fields`) |
+| `neighbor` | `neighbor` | `node_id`, `node_label`, `neighbor_id`, `relay_node` |
 | `pdr` | `pdr` | `node_label`, `flow`, `source` |
 
 Tags are not fields: a tag is an indexed dimension, and promoting a field to a
 tag changes the schema in a way that cannot be undone in place. `received_at`
-is the time key everywhere.
+is the time key everywhere. `relay_node` was a tag from its first day
+(2026-11-02), so the dashboard can count each node's packets per relay with a
+`GROUP BY`; points written before then have no such tag.
 
 ### 2.6 Accounts and ports
 
@@ -212,6 +249,19 @@ for flow in decoded.flows:                      # 'device' | 'environment' | 'po
 - `to_payload()` is where the field-name contract lives: pure, `DecodedPacket
   -> dict`, no clock, no I/O.
 - Messages skip the PDR step: decode → dedup → `to_message_payload()` → publish.
+- So does `nodeinfo`: decode → dedup → `to_nodeinfo_payload()` → publish. The
+  receiver logs what each node says it is when it first says it and whenever
+  it changes, and warns when the reported role differs from the file's. From a
+  radio that is not in the file it publishes nothing (G10), but logs its
+  hardware and MAC once and lists it in the report under `unknown_radios`:
+  that is how to tell which radio it is.
+- And `neighbor`: decode → dedup → `to_neighbor_payloads()`, one publish per
+  neighbour. The receiver logs the radios a node hears when that set changes,
+  warns once about a neighbour that is not in the file (a radio whose own
+  packets may never reach the gateway), and warns when a node reports on an
+  interval other than the file's. At start it says whether NeighborInfo is
+  off, local only, or on air.
+- A `[MSG]` line names a relayed message's last relay.
 - **The first 10 s after start-up are published but not scored.** Opening the
   serial port restarts the radio, which then hands over, at once, the packets
   it held while nothing was connected: their arrival times say nothing about
@@ -238,7 +288,7 @@ for flow in decoded.flows:                      # 'device' | 'environment' | 'po
 | G7 | `CadencePdrTracker` tests pass unchanged | `tests/test_pdr_tracker.py`, `restart` regression included |
 | G8 | No import of the platform's code | `tests/test_hard_rules.py` |
 | G9 | No secrets in git; each container gets only its own credentials | `.gitignore`; `TestCredentialsPerService` |
-| G10 | Each deployment file identical to the platform's copy | Same SHA-256; the receiver prints it at start and warns on unknown senders, undeclared flows and `cadence_violated` |
+| G10 | Each deployment file identical to the platform's copy | Same SHA-256; the receiver prints it at start and warns on unknown senders, undeclared flows, `cadence_violated`, a role other than the radio's, a neighbour not in the file and a NeighborInfo interval other than the file's |
 | G11 | InfluxDB requires authentication; least-privilege accounts | `TestHardening` |
 | G12 | No phone number reaches a browser whole: `for_browser()` masks a PBX frame's ids in the API and the live feed (+56 •••••6789) | `TestMessages`, `test_acl_rules` |
 | G13 | Only the proxy is reachable from the network, behind a login | `TestHardening` |
@@ -262,6 +312,15 @@ for flow in decoded.flows:                      # 'device' | 'environment' | 'po
   PBX belongs to the PBX project. The gateway keeps the PBX frames it hears in
   `message` (until 2026-10-30, the `pbx_message` measurement) and does not
   provision PBX radios.
+- **`ROUTING_APP` is not used** (2026-11-02). It cannot confirm that a direct
+  message arrived: the firmware hands the computer only broadcasts and
+  packets addressed to its own radio (`RoutingModule::handleReceivedProtobuf`),
+  so neither the direct messages between other nodes nor their ACKs reach the
+  receiver, and a broadcast is confirmed implicitly, with no `ROUTING_APP`
+  packet. What does arrive answers the gateway radio's own requests. It is
+  counted in the report (`heard.unknown_portnum`) and not published. What it
+  would take to confirm a delivery between two access points is in
+  [`architecture/message-delivery.md`](architecture/message-delivery.md).
 - **The offline map covers two boxes** (2026-10-29): San Joaquín and Rapa Nui,
   cut into `monitor/static/maps/` by its `fetch.sh` (an OpenStreetMap basemap
   from Protomaps; GEBCO 2020 elevation and depth contours within some 10 km of

@@ -87,6 +87,15 @@
 
     const nodeName = id => id ? (NAMES[id] ? `${NAMES[id]}` : id) : "broadcast";
 
+    // The firmware names a relay by the last byte of its num ("d7" for
+    // !403192d7, "ff" for a num ending in 00): every node of the file it fits.
+    function relayName(byte) {
+        const names = Object.keys(NAMES)
+            .filter(id => (id.slice(-2) === "00" ? "ff" : id.slice(-2)) === byte)
+            .map(id => NAMES[id]);
+        return names.length ? names.join("/") : `…${byte} (not in the file)`;
+    }
+
     function fmtWhen(ms) {
         return new Date(ms).toLocaleString([], { month: "2-digit", day: "2-digit",
             hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -138,7 +147,11 @@
         const parts = [];
         if (m.snr !== undefined && m.snr !== null) parts.push(`SNR ${Number(m.snr).toFixed(1)} dB`);
         if (m.rssi !== undefined && m.rssi !== null) parts.push(`RSSI ${m.rssi} dBm`);
-        if (m.hop !== undefined && m.hop !== null) parts.push(`hop ${m.hop}`);
+        if (m.hop !== undefined && m.hop !== null) {
+            // The copy the gateway heard: straight from the sender, or from its last relay.
+            parts.push(Number(m.hop) > 0 && m.relay_node
+                ? `hop ${m.hop}, last relay ${relayName(m.relay_node)}` : `hop ${m.hop}`);
+        }
         parts.push(m.portnum);
         meta.textContent = parts.join(" · ");
 

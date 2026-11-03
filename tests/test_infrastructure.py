@@ -21,10 +21,13 @@ PREFIX_VAR = "${MQTT_TOPIC_PREFIX}"
 
 # docs/design.md §2.5
 MEASUREMENT = {"position": "telemetry", "device": "telemetry", "environment": "telemetry",
-               "message": "message", "pdr": "pdr"}
+               "message": "message", "nodeinfo": "nodeinfo", "neighbor": "neighbor", "pdr": "pdr"}
 TAGS = {
-    "telemetry": ["node_id", "node_label"],
-    "message": ["node_id", "node_label", "portnum", "channel", "origin", "src_id", "dst_id"],
+    "telemetry": ["node_id", "node_label", "relay_node"],
+    "message": ["node_id", "node_label", "portnum", "channel", "origin", "src_id", "dst_id",
+                "relay_node"],
+    "nodeinfo": ["node_id", "node_label", "relay_node"],
+    "neighbor": ["node_id", "node_label", "neighbor_id", "relay_node"],
     "pdr": ["node_label", "flow", "source"],
 }
 
@@ -47,6 +50,11 @@ class TestTelegrafMatchesThePublisher(unittest.TestCase):
         """The json parser drops a string field it is not told about, silently."""
         [inp] = [i for i in self.inputs if i["name_override"] == "message"]
         self.assertEqual(inp["json_string_fields"], ["text", "content_hex"])
+
+    def test_what_a_node_says_it_is_is_kept(self):
+        [inp] = [i for i in self.inputs if i["name_override"] == "nodeinfo"]
+        self.assertEqual(inp["json_string_fields"],
+                         ["long_name", "short_name", "hw_model", "role", "mac"])
 
     def test_received_at_is_the_time_key_everywhere(self):
         for inp in self.inputs:

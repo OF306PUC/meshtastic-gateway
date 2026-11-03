@@ -21,6 +21,8 @@ ALL_FIELDS         = POSITION_FIELDS + ENVIRONMENT_FIELDS + DEVICE_FIELDS + RX_M
 
 
 MESSAGE_MEASUREMENT = "message"
+NODEINFO_MEASUREMENT = "nodeinfo"
+NEIGHBOR_MEASUREMENT = "neighbor"
 
 
 class DatabaseError(RuntimeError):
@@ -93,6 +95,17 @@ class InfluxDBConnector:
                 for tags, row in self._grouped(q)
                 if tags.get("node_id") and row.get("uptime") is not None}
 
+    def get_nodes_info(self) -> dict[str, dict]:
+        """{node_id: {hw_model, role, long_name, info_at}}: what each node last said it is.
+
+        One selector, the other fields from its point: with several LAST()s,
+        InfluxDB answers with time 0 and may mix packets."""
+        q = (f'SELECT LAST("role") AS role, "hw_model", "long_name" '
+             f'FROM "{NODEINFO_MEASUREMENT}" GROUP BY "node_id"')
+        return {tags["node_id"]: {**{k: row[k] for k in ("hw_model", "role", "long_name")
+                                     if row.get(k) is not None}, "info_at": row["time"]}
+                for tags, row in self._grouped(q) if tags.get("node_id")}
+
     def get_links(self, hours: int) -> list[dict]:
         """Per node, what the gateway heard over the last `hours`: packets straight
         from it (hop 0), with their mean RSSI and SNR, and packets a relay passed on."""
@@ -112,6 +125,40 @@ class InfluxDBConnector:
                                                "node_label": tags.get("node_label"), "direct": 0,
                                                "rssi": None, "snr": None})["relayed"] = row["relayed"]
         return list(links.values())
+
+    def get_relays(self, hours: int) -> dict[str, dict[str, int]]:
+        """{node_id: {relay_node: packets}}: over the last `hours`, the radio the
+        gateway heard pass on each node's relayed packets — the last relay."""
+        q = (f'SELECT COUNT("hop") AS packets FROM "{self.measurement}" '
+             f'WHERE "hop" > 0 AND time > now() - {int(hours)}h '
+             f'GROUP BY "node_id","relay_node"')
+        relays: dict[str, dict[str, int]] = {}
+        for tags, row in self._grouped(q):
+            if tags.get("node_id") and tags.get("relay_node"):    # none before 2026-11-02
+                relays.setdefault(tags["node_id"], {})[tags["relay_node"]] = row["packets"]
+        return relays
+
+    def get_neighbor_reports(self, seconds: int) -> list[dict]:
+        """Each node's latest NeighborInfo report of the last `seconds`:
+        [{node_id, node_label, at, neighbors: [{node_id, snr}]}]. A neighbour
+        missing from a node's latest report is one it no longer hears: left out."""
+        q = (f'SELECT LAST("neighbor_snr") AS snr FROM "{NEIGHBOR_MEASUREMENT}" '
+             f'WHERE time > now() - {int(seconds)}s '
+             f'GROUP BY "node_id","node_label","neighbor_id"')
+        edges = [(tags, row) for tags, row in self._grouped(q)
+                 if tags.get("node_id") and tags.get("neighbor_id")]
+        reports: dict[str, dict] = {}
+        for tags, row in edges:        # one report's neighbours share its received_at
+            report = reports.get(tags["node_id"])
+            if report is None or row["time"] > report["at"]:
+                reports[tags["node_id"]] = {"node_id": tags["node_id"],
+                                            "node_label": tags.get("node_label"),
+                                            "at": row["time"], "neighbors": []}
+        for tags, row in edges:
+            report = reports[tags["node_id"]]
+            if row["time"] == report["at"]:
+                report["neighbors"].append({"node_id": tags["neighbor_id"], "snr": row["snr"]})
+        return list(reports.values())
 
     def get_messages(self, limit: int, node_id: str | None = None) -> list[dict]:
         """The last `limit` messages, newest first, every field and tag. With

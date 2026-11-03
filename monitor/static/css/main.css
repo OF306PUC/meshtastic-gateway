@@ -103,6 +103,7 @@ main { height: calc(100vh - 46px); overflow: hidden; }
 .leaflet-popup-content a { color: var(--accent); font-weight: 600; }
 .leaflet-popup-content hr { border: 0; border-top: 1px solid var(--border); }
 .leaflet-popup-content .muted { color: var(--muted); }
+.leaflet-popup-content .warn { color: var(--warn); }
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; }

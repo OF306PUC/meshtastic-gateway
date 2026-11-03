@@ -31,7 +31,7 @@ WiFi: `ssh rpi7@10.42.0.1`.
 Over SSH from the office. Creating the profile does not activate it.
 
 ```bash
-sudo nmcli connection add type wifi ifname wlan0 con-name terreno-ap \
+sudo nmcli connection add type wifi ifname wlan0 con-name terrain-ap \
   autoconnect no \
   ssid "meshtastic-gw" \
   802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel 6 \
@@ -67,7 +67,7 @@ In the field nobody types commands: the host must bring up its network by
 itself at power-on.
 
 ```bash
-sudo nmcli connection modify terreno-ap connection.autoconnect yes connection.autoconnect-priority 10
+sudo nmcli connection modify terrain-ap connection.autoconnect yes connection.autoconnect-priority 10
 ```
 
 At boot NetworkManager activates the highest-priority profile it can. An access
@@ -98,7 +98,7 @@ host boots as an access point **in the office too**. Check it with
 Join `meshtastic-gw`, `ssh rpi7@10.42.0.1`, then:
 
 ```bash
-sudo nmcli connection modify terreno-ap connection.autoconnect no
+sudo nmcli connection modify terrain-ap connection.autoconnect no
 sudo nmcli connection up preconfigured
 ```
 
@@ -113,4 +113,4 @@ mode.
   laptop in the same room.
 - A laptop may warn that the network has no internet. It still reaches the
   dashboard; a phone may need "stay connected" or its mobile data off.
-- Remove the profile: `sudo nmcli connection delete terreno-ap`.
+- Remove the profile: `sudo nmcli connection delete terrain-ap`.

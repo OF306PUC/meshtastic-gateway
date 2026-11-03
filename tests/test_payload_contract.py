@@ -8,7 +8,8 @@ import struct
 import unittest
 
 from gateway.decode import decode
-from gateway.payload import to_message_payload, to_payload
+from gateway.payload import (to_message_payload, to_neighbor_payloads, to_nodeinfo_payload,
+                             to_payload)
 from gateway.pdr import CadencePdrTracker
 from tests.fixtures import packets as pk
 
@@ -107,6 +108,44 @@ class TestOmitNotZero(unittest.TestCase):
 
     def test_a_real_zero_is_published(self):
         self.assertEqual(_flow(pk.env_packet(temp=0.0), "environment")["temperature"], 0.0)
+
+    def test_nodeinfo_omits_what_the_radio_did_not_say(self):
+        packet = pk.nodeinfo_packet(hw_model=None)
+        del packet["decoded"]["user"]["longName"], packet["decoded"]["user"]["macaddr"]
+        payload = to_nodeinfo_payload(decode(packet), pk.KNOWN_NODE_LABEL, RECEIVED_AT)
+        self.assertEqual((payload["short_name"], payload["role"]), ("122b", "CLIENT"))
+        for name in ("long_name", "hw_model", "mac"):
+            self.assertNotIn(name, payload)
+
+    def test_relay_node_omitted_when_the_firmware_gives_none(self):
+        for value in (None, 0, 0x100):
+            with self.subTest(relayNode=value):
+                packet = pk.env_packet()
+                packet["relayNode"] = value
+                self.assertNotIn("relay_node", _flow(packet, "environment"))
+
+    def test_a_packet_without_node_info_fails_loudly(self):
+        with self.assertRaisesRegex(ValueError, "carries no node info"):
+            to_nodeinfo_payload(decode(pk.env_packet()), pk.KNOWN_NODE_LABEL, RECEIVED_AT)
+
+    def test_a_packet_without_a_neighbour_report_fails_loudly(self):
+        with self.assertRaisesRegex(ValueError, "carries no neighbour report"):
+            to_neighbor_payloads(decode(pk.env_packet()), pk.KNOWN_NODE_LABEL, RECEIVED_AT)
+
+
+class TestRelayNode(unittest.TestCase):
+    """The radio the gateway heard: the sender at hop 0, its last relay otherwise."""
+
+    def test_the_sender_itself_at_hop_0(self):
+        self.assertEqual(_message(pk.app_text_packet("hola"))["relay_node"], "2b")
+
+    def test_the_last_relay_otherwise(self):
+        self.assertEqual(_flow(pk.env_packet(), "environment")["relay_node"], "44")
+
+    def test_two_hex_digits_like_the_end_of_a_node_id(self):
+        packet = pk.env_packet()
+        packet["relayNode"] = 0x07
+        self.assertEqual(_flow(packet, "environment")["relay_node"], "07")
 
 
 class TestProtobufDefaults(unittest.TestCase):

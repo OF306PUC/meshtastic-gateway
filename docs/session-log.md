@@ -20,6 +20,142 @@ Entry format:
 
 ---
 
+## 2026-11-03 — Pedido al PBX: acuse de recibo; estado de lo no commiteado
+**Time:** (aprox)
+**User request:** dejar escrito para el PBX lo de la confirmación D1 → D2; qué
+debería verse de nuevo en el gateway, porque los cambios no se commitearon.
+
+### Actions taken
+- Leído meshpbx (solo lectura, submódulo de la plataforma, `3ed464a`):
+  - las tramas ruteadas van `to = <nodenum de D2>` (`client-integration.md`
+    §4.2): son mensajes directos y el gateway no las ve;
+  - `router.c` rutea por `DST_ID`, no por `MeshPacket.to`;
+  - `seq-numbers-pdr.md` ya propone un v2 con `SEQ` por par.
+- Documento compartible "PBX delivery receipts" (Claude Docs, en inglés, para
+  el equipo del PBX): por qué hoy nadie puede confirmar, el acuse (v2 + byte
+  `TYPE`, ids intercambiados, mismo `SEQ`, broadcast por `EasterNetM`),
+  reglas, costo (~0.14 s por transmisión), qué da, el cambio a v2 el mismo
+  día en teléfonos, proxies y gateway, decisiones pendientes, orden de bytes,
+  y un diagrama de secuencia.
+- `docs/architecture/message-delivery.md`: fila de tramas ruteadas del PBX en
+  la tabla; §3 resume el pedido (se descarta identificar por `pkt_id`: el
+  gateway no oye el mensaje directo); §4 pareo por (`SRC_ID`, `DST_ID`,
+  `SEQ`) y cambio a v2 sincronizado; costo corregido a ~0.14 s.
+- `docs/field-hotspot.md`: el perfil de NetworkManager en pi7 se llama
+  `terrain-ap` (`nmcli connection show`); el documento mezclaba `terreno-ap`.
+
+### Outcomes
+- pi7 está en `b67a132`, sin cambios locales, con `sasipa/rapa-nui`: no tiene
+  NodeInfo, último relay ni NeighborInfo, que siguen sin commit aquí.
+- Hallazgo para el PBX: `client-integration.md` dice que `proxy_id` es
+  little-endian, pero `proxy_id_value()` y el gateway lo leen big-endian.
+
+### Next steps / open questions
+- El usuario comparte el documento con el PBX (es privado hasta compartirlo).
+- Commit y `git pull --ff-only && docker compose up -d --build
+  --force-recreate` en pi7.
+
+---
+
+## 2026-11-02 — Último relay, NeighborInfo y confirmación de entrega D1 → D2
+**Time:** 16:25–16:55 (aprox)
+**User request:** documentar cómo confirmar que D2 recibió un mensaje de D1;
+"sí" a NeighborInfo; conocer el último relay de cada paquete.
+
+### Actions taken
+- `docs/architecture/message-delivery.md` (nuevo):
+  - qué ve el gateway (solo broadcasts y lo dirigido a su radio, una copia por
+    paquete, mensajes directos cifrados con PKI);
+  - por qué ni el ACK de Meshtastic, ni el ACK implícito, ni el relay, ni
+    NeighborInfo confirman D1 → D2;
+  - la propuesta: un acuse de recibo broadcast por `EasterNetM`, a definir por
+    el proyecto PBX, y lo que haría el gateway con él (emparejar, «✓ recibido
+    por D2», «sin confirmar», nunca «perdido»). ~0.13 s de aire por acuse.
+- Último relay (`relay_node`): el firmware pone el último byte del num de la
+  radio que transmitió la copia (el emisor a hop 0; `ff` si termina en `00`):
+  - publicado en todos los payloads como dos dígitos hex, `"d7"` para
+    `!403192d7`, y como tag en InfluxDB;
+  - `relay_name()` lo traduce con el yaml;
+  - aparece en las líneas `[MSG]`, en Messages («hop 1, last relay N6») y en
+    Graph (`via` por nodo; la línea punteada dice «via N6»).
+- NeighborInfo: `decode` (`kind = "neighborinfo"`, descarta el vecino 0 del
+  firmware, SNR omitido = 0.0 dB) → un payload por vecino, tópico y medición
+  `neighbor`:
+  - el lector del yaml toma `radio.neighbor_info`;
+  - receptor: log cuando cambia el conjunto de vecinos, aviso por vecino fuera
+    del yaml y por intervalo distinto; al arrancar dice si está apagado, solo
+    local o al aire;
+  - `/api/neighbors`: el último reporte de cada nodo vigente por 2× el
+    intervalo;
+  - Graph: líneas entre nodos del color de la dirección más débil, estado del
+    módulo y vecinos fuera del archivo.
+- Probado con influxdb:1.8 y Telegraf 1.32 reales: el tag `relay_node`, las
+  consultas existentes con el tag nuevo, y el reporte más reciente que descarta
+  un vecino que ya no aparece. Graph y Messages vistos en Chrome headless.
+- 319 tests OK.
+
+### Decisions
+- `relay_node` como tag y no como campo: el Graph cuenta paquetes por relay con
+  `GROUP BY`. Los puntos anteriores no lo tienen.
+- Un vecino fuera del yaml se publica igual: es un dato del nodo que lo reporta.
+
+### Next steps / open questions
+- El acuse de recibo D1 → D2 depende del proyecto PBX: formato, opción (a)
+  `pkt_id` o (b) secuencia.
+- La plataforma tiene `neighbor_info` y `node_info_secs` sin commit; volver a
+  copiar el yaml si cambia. El primer reporte de NeighborInfo llega 4 h después
+  de arrancar cada radio.
+
+---
+
+## 2026-11-02 — NODEINFO_APP publicado; ROUTING_APP y NEIGHBORINFO_APP revisados
+**Time:** 15:30–16:20 (aprox)
+**User request:** qué se hace con los paquetes `ROUTING_APP` y `NODEINFO_APP`
+(se contaban y descartaban); "ambas me sirven" (confirmar entrega de mensajes
+directos; hardware de cada nodo e identificar radios fuera del yaml); si existe
+un portnum de NeighborInfo.
+
+### Actions taken
+- Leído el firmware (master): `RoutingModule::handleReceivedProtobuf` entrega
+  al computador solo broadcasts y paquetes dirigidos a su radio. Los mensajes
+  directos entre otros nodos y sus ACK nunca llegan al receptor; un broadcast se
+  confirma implícitamente, sin `ROUTING_APP`. **La marca de entrega propuesta no
+  es posible**: `ROUTING_APP` sigue contado y sin publicar (design.md §6).
+- `NODEINFO_APP` de punta a punta:
+  - `decode`: `kind = "nodeinfo"`, `NodeInfo` (nombres, `hw_model`, `role`
+    con `CLIENT` cuando falta, MAC desde base64);
+  - `to_nodeinfo_payload()`, tópico `{prefix}/{label}/nodeinfo`, medición
+    `nodeinfo` en Telegraf (strings en `json_string_fields`);
+  - receptor: publica la de los nodos del yaml; registra lo que cada nodo dice
+    ser cuando llega o cambia; advierte si el rol difiere del yaml (que ahora
+    lee `role`); de una radio fuera del yaml no publica nada, pero registra su
+    hardware y MAC y la lista en el reporte (`unknown_radios`);
+  - dashboard: `/api/nodes` agrega `hw_model`, `role`, `long_name`,
+    `info_at` y `file_role`; el popup del mapa muestra hardware · rol y, en
+    amarillo, el rol del yaml cuando difiere.
+- Consulta probada contra influxdb:1.8 con Telegraf 1.32 real: con varios
+  `LAST()` InfluxDB responde con hora 0, así que se usa un selector y los demás
+  campos de su punto. Popup visto en Chrome headless.
+- `test_every_file_this_repository_ships_loads` esperaba ≥ 2 archivos y fallaba
+  desde que `office-bench.yaml` salió (`b67a132`): ahora pide al menos uno.
+- 294 tests OK.
+- `rapa-nui.yaml` copiado otra vez (sha `767ef595…`, aún sin commit en la
+  plataforma): `radio.node_info_secs: 7200` y `radio.neighbor_info`
+  (14400 s, `transmit_over_lora: true`). Las `intervals` no cambiaron. El
+  gateway lo lee; no usa todavía esos dos campos.
+
+### Decisions
+- NodeInfo no trae la versión de firmware (`User` no la tiene).
+- Lo que dice ser un nodo fuera del yaml no se publica (G10): solo log y reporte.
+
+### Next steps / open questions
+- `NEIGHBORINFO_APP` (portnum 71): da los vecinos directos de cada nodo con su
+  SNR, para dibujar la topología completa. Requiere activar el módulo en cada
+  radio desde la plataforma (`enabled`, `transmit_over_lora`, intervalo mínimo
+  4 h). Pendiente de decisión del usuario.
+
+---
+
 ## 2026-10-30 — rapa-nui.yaml sincronizado otra vez con la plataforma
 **Time:** 19:05 (aprox)
 **User request:** copiar aquí el `.yaml` de la plataforma.

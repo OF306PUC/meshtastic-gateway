@@ -25,13 +25,16 @@ What it does, concretely:
   * says what KIND of packet it is: device, environment, position (the
     periodic flows), text, private (PRIVATE_APP, portnum 256: an application's
     own payload, kept opaque — only its size is read; gateway.payload parses
-    the PBX frame),
+    the PBX frame), nodeinfo (NODEINFO_APP: how the radio introduces itself,
+    every few hours and on request), neighborinfo (NEIGHBORINFO_APP: the
+    radios a node hears without a hop, and how well),
     telemetry (a variant not mapped here), other (any other app), encrypted
     (heard but not decryptable: another key or another mesh), empty;
   * pulls out the link measurements (RSSI, SNR), the hop count and the channel;
   * fills in zeros the library left out where zero is a real value — channel
-    0, a hop limit used up (0), an SNR of exactly 0.0 dB — and leaves real
-    metrics (battery, temperature...) None when absent, never a fake 0;
+    0, a hop limit used up (0), an SNR of exactly 0.0 dB, the CLIENT role —
+    and leaves real metrics (battery, temperature...) None when absent, never
+    a fake 0;
   * attaches the sender's registry entry when the caller passes known_nodes.
 
 What it does NOT do: read the clock, drop duplicates, filter unknown senders,
@@ -42,13 +45,16 @@ in `raw`, and DecodeStats counts it, so nothing disappears silently.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 __all__ = [
     "FLOW_KINDS", "DecodedPacket", "DecodeStats", "DeviceMetrics",
-    "EnvironmentMetrics", "Position", "TextMessage", "decode",
+    "EnvironmentMetrics", "Neighbor", "NeighborReport", "NodeInfo", "Position", "TextMessage",
+    "decode",
 ]
 
 # Periodic broadcast flows. One flow per (node, kind); each has its own
@@ -94,6 +100,30 @@ class TextMessage:
 
 
 @dataclass(frozen=True)
+class NodeInfo:
+    long_name: str | None
+    short_name: str | None
+    hw_model: str | None               # HardwareModel enum name; None when UNSET
+    role: str                          # DeviceConfig.Role enum name
+    mac: str | None                    # "C1:C8:0B:64:12:2B"
+    extra: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Neighbor:
+    node_id: str
+    snr: float                         # as the reporting node hears it
+
+
+@dataclass(frozen=True)
+class NeighborReport:
+    node_id: str | None                # the reporting node, as the report names it
+    interval_s: int | None             # how often it reports
+    neighbors: tuple[Neighbor, ...]
+    extra: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class DecodedPacket:
     # Envelope, common to every packet.
     from_id: str | None
@@ -118,6 +148,8 @@ class DecodedPacket:
     environment: EnvironmentMetrics | None = None
     position: Position | None = None
     text: TextMessage | None = None
+    nodeinfo: NodeInfo | None = None
+    neighborinfo: NeighborReport | None = None
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
 
     @property
@@ -198,6 +230,42 @@ def _text(decoded: Mapping[str, Any]) -> TextMessage:
     return TextMessage(text=text if isinstance(text, str) else None)
 
 
+def _nodeinfo(user: Mapping[str, Any]) -> NodeInfo:
+    try:
+        mac = base64.b64decode(user.get("macaddr") or "", validate=True)
+    except (binascii.Error, TypeError, ValueError):
+        mac = b""
+    return NodeInfo(
+        long_name=user.get("longName"),
+        short_name=user.get("shortName"),
+        hw_model=user.get("hwModel"),
+        role=user.get("role", "CLIENT"),   # role 0, which protobuf3 omits
+        mac=":".join(f"{b:02X}" for b in mac) if len(mac) == 6 else None,
+        extra=_extra(user, {"id", "longName", "shortName", "macaddr", "hwModel", "role"}),
+    )
+
+
+def _node_id(num) -> str | None:
+    num = _int_or_none(num)
+    return f"!{num:08x}" if num else None
+
+
+def _neighbor_report(info: Mapping[str, Any]) -> NeighborReport:
+    neighbors = []
+    for n in info.get("neighbors") or []:
+        node_id = _node_id(n.get("nodeId")) if isinstance(n, Mapping) else None
+        if node_id is None:            # num 0: the firmware's placeholder, not a radio
+            continue
+        # SNR omitted because it is zero: 0.0 dB, as for the packet's own.
+        neighbors.append(Neighbor(node_id=node_id, snr=float(n.get("snr", 0.0))))
+    return NeighborReport(
+        node_id=_node_id(info.get("nodeId")),
+        interval_s=_int_or_none(info.get("nodeBroadcastIntervalSecs")),
+        neighbors=tuple(neighbors),
+        extra=_extra(info, {"nodeId", "nodeBroadcastIntervalSecs", "neighbors"}),
+    )
+
+
 def _payload_len(payload) -> int | None:
     if payload is None:
         return None
@@ -276,6 +344,12 @@ def decode(packet: Mapping[str, Any] | None, *,
         kind = "text"
     elif portnum == "PRIVATE_APP":
         kind = "private"               # an application's own format: opaque here
+    elif portnum == "NODEINFO_APP":
+        parts["nodeinfo"] = _nodeinfo(decoded.get("user") or {})
+        kind = "nodeinfo"
+    elif portnum == "NEIGHBORINFO_APP":
+        parts["neighborinfo"] = _neighbor_report(decoded.get("neighborinfo") or {})
+        kind = "neighborinfo"
     else:
         kind = "other"
 

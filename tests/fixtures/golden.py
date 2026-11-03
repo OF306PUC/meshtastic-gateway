@@ -2,7 +2,8 @@
 
 Telemetry dicts come from the monorepo's tests/test_decode_golden.py. Message
 dicts were captured on 2026-10-26 by running its MeshReceiver on these same
-fixtures. `received_at` and `pkt_id` are left to the caller.
+fixtures. `received_at` and `pkt_id` are left to the caller. `relay_node` is the
+gateway's own addition (2026-11-02), as are `origin` and `text` before it.
 """
 from tests.fixtures import packets as pk
 
@@ -14,6 +15,7 @@ ENVIRONMENT = {
     "rssi": -85,
     "snr": 7.5,
     "hop": 2,
+    "relay_node": "44",
     "channel": 0,
     "device_ts": 1700000000,
 }
@@ -29,6 +31,7 @@ DEVICE = {
     "rssi": -90,
     "snr": 5.0,
     "hop": 2,
+    "relay_node": "44",
     "channel": 0,
     "device_ts": 1700000001,
 }
@@ -42,6 +45,7 @@ POSITION = {
     "rssi": -80,
     "snr": 9.0,
     "hop": 2,
+    "relay_node": "44",
     "channel": 0,
     "device_ts": 1700000002,
 }
@@ -81,6 +85,7 @@ ROUTED_MESSAGE = {
     "rssi": -95,
     "snr": 3.5,
     "hop": 1,
+    "relay_node": "44",
 }
 
 BROADCAST_MESSAGE = {
@@ -105,7 +110,32 @@ APP_MESSAGE = {
     "rssi": -101,
     "snr": -2.25,
     "hop": 0,
+    "relay_node": "2b",
 }
+
+NODEINFO = {
+    "node_id": pk.KNOWN_NODE_ID,
+    "node_label": pk.KNOWN_NODE_LABEL,
+    "long_name": "Meshtastic 122b",
+    "short_name": "122b",
+    "hw_model": "SEEED_SOLAR_NODE",
+    "role": "CLIENT",
+    "mac": "C1:C8:0B:64:12:2B",
+    "rssi": -97,
+    "snr": 4.25,
+    "hop": 0,
+    "relay_node": "2b",
+    "channel": 0,
+}
+
+NEIGHBORS = [   # one payload per neighbour, in the report's order
+    {"node_id": pk.KNOWN_NODE_ID, "node_label": pk.KNOWN_NODE_LABEL, "neighbor_count": 2,
+     "interval_s": 14400, "rssi": -104, "snr": -1.5, "hop": 1, "relay_node": "44", "channel": 0,
+     "neighbor_id": "!11223344", "neighbor_snr": 6.5},
+    {"node_id": pk.KNOWN_NODE_ID, "node_label": pk.KNOWN_NODE_LABEL, "neighbor_count": 2,
+     "interval_s": 14400, "rssi": -104, "snr": -1.5, "hop": 1, "relay_node": "44", "channel": 0,
+     "neighbor_id": "!deadbeef", "neighbor_snr": -3.25},
+]
 
 MALFORMED_MESSAGE = {
     "node_id": pk.KNOWN_NODE_ID,
@@ -117,4 +147,5 @@ MALFORMED_MESSAGE = {
     "rssi": -95,
     "snr": 3.5,
     "hop": 1,
+    "relay_node": "44",
 }

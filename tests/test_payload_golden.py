@@ -8,7 +8,8 @@ Run: python -m unittest discover -s tests -t .
 import unittest
 
 from gateway.decode import decode
-from gateway.payload import to_message_payload, to_payload
+from gateway.payload import (to_message_payload, to_neighbor_payloads, to_nodeinfo_payload,
+                             to_payload)
 from gateway.pdr import CadencePdrTracker
 from tests.fixtures import golden
 from tests.fixtures import packets as pk
@@ -60,6 +61,19 @@ class TestMessageGolden(unittest.TestCase):
     def test_malformed(self):
         self.assertGolden(pk.private_packet(b"\x01\x02\x03", pkt_id=2003),
                           golden.MALFORMED_MESSAGE)
+
+
+class TestNodeInfoGolden(unittest.TestCase):
+    def test_nodeinfo(self):
+        payload = to_nodeinfo_payload(decode(pk.nodeinfo_packet()), LABEL, RECEIVED_AT)
+        self.assertEqual(payload, {**golden.NODEINFO, "received_at": RECEIVED_AT})
+
+
+class TestNeighborGolden(unittest.TestCase):
+    def test_one_payload_per_neighbour(self):
+        payloads = to_neighbor_payloads(decode(pk.neighbor_packet(pkt_id=3001)), LABEL, RECEIVED_AT)
+        self.assertEqual(payloads, [{**n, "pkt_id": 3001, "received_at": RECEIVED_AT}
+                                    for n in golden.NEIGHBORS])
 
 
 class TestHopsTaken(unittest.TestCase):

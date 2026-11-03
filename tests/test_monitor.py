@@ -26,9 +26,13 @@ N1, P1 = "!0b64122b", "!11223344"
 
 
 class _DB:
-    def __init__(self, positions=(), recent=(), fail=False, uptimes=None, links=(), messages=()):
+    def __init__(self, positions=(), recent=(), fail=False, uptimes=None, links=(), messages=(),
+                 infos=None, relays=None, neighbor_reports=()):
         self.positions, self.recent, self.fail, self.calls = list(positions), list(recent), fail, []
         self.uptimes, self.links = dict(uptimes or {}), [dict(link) for link in links]
+        self.infos = dict(infos or {})
+        self.relays = dict(relays or {})
+        self.neighbor_reports = [dict(r) for r in neighbor_reports]
         self.messages = [dict(m) for m in messages]
 
     def _maybe_fail(self):
@@ -48,10 +52,24 @@ class _DB:
         self._maybe_fail()
         return dict(self.uptimes)
 
+    def get_nodes_info(self):
+        self._maybe_fail()
+        return dict(self.infos)
+
     def get_links(self, hours):
         self.calls.append(("links", hours))
         self._maybe_fail()
         return [dict(link) for link in self.links]
+
+    def get_relays(self, hours):
+        self.calls.append(("relays", hours))
+        self._maybe_fail()
+        return {k: dict(v) for k, v in self.relays.items()}
+
+    def get_neighbor_reports(self, seconds):
+        self.calls.append(("neighbors", seconds))
+        self._maybe_fail()
+        return [{**r, "neighbors": [dict(n) for n in r["neighbors"]]} for r in self.neighbor_reports]
 
     def get_messages(self, limit, node_id=None):
         self.calls.append(("messages", limit, node_id))
@@ -106,6 +124,15 @@ class TestApiNodes(MonitorCase):
         self.assertEqual((nodes[N1]["uptime_s"], nodes[N1]["uptime_at"]),
                          (18703, "2026-10-28T17:25:54Z"))
         self.assertNotIn("uptime_s", nodes[P1], "none reported")
+
+    def test_each_node_carries_what_it_said_it_is_and_the_files_role(self):
+        db = _DB(self.GPS, infos={N1: {"hw_model": "SEEED_SOLAR_NODE", "role": "ROUTER",
+                                       "long_name": "Meshtastic 122b",
+                                       "info_at": "2026-11-02T12:00:00Z"}})
+        nodes = {n["node_id"]: n for n in self.client(db).get("/api/nodes").json}
+        self.assertEqual({k: nodes[N1][k] for k in ("hw_model", "role", "file_role")},
+                         {"hw_model": "SEEED_SOLAR_NODE", "role": "ROUTER", "file_role": "CLIENT"})
+        self.assertNotIn("file_role", nodes[P1], "nothing reported to compare it with")
 
     def test_a_planned_site_only_when_there_is_nothing_better(self):
         nodes = {n["node_label"]: n for n in self.client(_DB()).get("/api/nodes").json}
@@ -165,14 +192,15 @@ class TestApiLinks(MonitorCase):
 
     def test_every_node_of_the_file_and_every_node_heard(self):
         body = self.client(_DB(links=self.HEARD)).get("/api/links").json
-        self.assertEqual(body["gateway"], "GW")
+        self.assertEqual((body["gateway"], body["gateway_id"]), ("GW", "!aabbccdd"))
         self.assertEqual(body["hours"], 24)
         links = {link["node_label"]: link for link in body["links"]}
         self.assertEqual(set(links), {"node-1", "P1", "R1", "stray"}, "the gateway is the centre")
         self.assertEqual((links["node-1"]["direct"], links["node-1"]["snr"]), (40, 4.25))
         self.assertEqual((links["P1"]["direct"], links["P1"]["relayed"]), (0, 7))
         self.assertEqual(links["R1"], {"node_id": None, "node_label": "R1", "function": "receiver",
-                                       "direct": 0, "relayed": 0, "rssi": None, "snr": None})
+                                       "direct": 0, "relayed": 0, "rssi": None, "snr": None,
+                                       "via": []})
         self.assertIsNone(links["stray"]["function"], "heard, but not in the file")
 
     def test_the_window_is_clamped(self):
@@ -180,10 +208,44 @@ class TestApiLinks(MonitorCase):
         client = self.client(db)
         for asked in ("0", "6", "100000"):
             client.get(f"/api/links?hours={asked}")
-        self.assertEqual([c[1] for c in db.calls], [1, 6, 168])
+        self.assertEqual(db.calls, [(kind, h) for h in (1, 6, 168) for kind in ("links", "relays")])
+
+    def test_the_last_relay_of_each_node_named_from_the_file(self):
+        db = _DB(links=self.HEARD, relays={P1: {"2b": 5, "d7": 2}})
+        links = {link["node_label"]: link for link in self.client(db).get("/api/links").json["links"]}
+        self.assertEqual(links["P1"]["via"], [
+            {"relay_node": "2b", "name": "node-1", "packets": 5},
+            {"relay_node": "d7", "name": "…d7 (not in the deployment file)", "packets": 2}])
 
     def test_a_database_failure_is_a_503(self):
         self.assertEqual(self.client(_DB(fail=True)).get("/api/links").status_code, 503)
+
+
+class TestApiNeighbors(MonitorCase):
+    REPORTS = [{"node_id": N1, "node_label": "node-1", "at": "2026-11-02T12:00:00Z",
+                "neighbors": [{"node_id": P1, "snr": 6.5}, {"node_id": "!deadbeef", "snr": -3.25}]}]
+
+    def test_each_nodes_latest_report_named_from_the_file(self):
+        db = _DB(neighbor_reports=self.REPORTS)
+        body = self.client(db).get("/api/neighbors").json
+        self.assertEqual((body["interval_s"], body["on_air"]), (14400, True))
+        self.assertEqual(db.calls, [("neighbors", 28800)], "twice the interval")
+        [report] = body["reports"]
+        self.assertEqual([(n["node_label"], n["snr"]) for n in report["neighbors"]],
+                         [("P1", 6.5), (None, -3.25)])
+
+    def test_with_the_module_off_nothing_is_asked(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "test-mesh.yaml"
+            path.write_text(Path(TEST_MESH).read_text().replace(
+                "  neighbor_info: {interval_secs: 14400, transmit_over_lora: true}\n", ""))
+            db = _DB(neighbor_reports=self.REPORTS)
+            body = self.client(db, MESH_DEPLOYMENT=str(path)).get("/api/neighbors").json
+        self.assertEqual(body, {"interval_s": None, "on_air": False, "reports": []})
+        self.assertEqual(db.calls, [])
+
+    def test_a_database_failure_is_a_503(self):
+        self.assertEqual(self.client(_DB(fail=True)).get("/api/neighbors").status_code, 503)
 
 
 PBX_MESSAGE = {"time": "2026-10-30T13:00:00Z", "node_id": P1, "node_label": "P1",

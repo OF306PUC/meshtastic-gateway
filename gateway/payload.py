@@ -13,7 +13,8 @@ from typing import Any, Mapping
 from gateway.decode import DecodedPacket
 
 __all__ = ["MESSAGE_PORTNUMS", "destination", "meshtastic_text", "parse_pbx_frame", "pbx_frame",
-           "to_message_payload", "to_payload"]
+           "relay_node", "to_message_payload", "to_neighbor_payloads", "to_nodeinfo_payload",
+           "to_payload"]
 
 # PBX frames ride in decoded.payload; the portnum selects the header layout:
 #     PRIVATE_APP       [VERSION:1][SRC_ID:4][DST_ID:4][content]   routed
@@ -65,6 +66,7 @@ def to_payload(decoded: DecodedPacket, flow: str, label: str, received_at: int,
         "hop": decoded.hops_taken,
         "channel": decoded.channel,
         "received_at": received_at,
+        **_relay(decoded),
     }
     device_ts = metrics.device_ts if metrics.device_ts is not None else held_device_ts
     if device_ts is not None:
@@ -99,6 +101,7 @@ def to_message_payload(decoded: DecodedPacket, label: str, received_at: int) -> 
         "snr": decoded.rx_snr,
         "hop": decoded.hops_taken,
         "received_at": received_at,
+        **_relay(decoded),
     }
     frame = pbx_frame(decoded)
     if frame is not None:
@@ -125,6 +128,75 @@ def to_message_payload(decoded: DecodedPacket, label: str, received_at: int) -> 
         return payload
     payload["malformed"] = 1           # the only trace a bad frame leaves
     return payload
+
+
+def to_nodeinfo_payload(decoded: DecodedPacket, label: str, received_at: int) -> dict:
+    """How a node introduces itself -> its payload: the hardware and role the
+    radio reports, its names and MAC. No device_ts and no PDR: a node sends it
+    every few hours and when asked, not on a cadence."""
+    info = decoded.nodeinfo
+    if info is None:
+        raise ValueError(f"packet {decoded.packet_id}: portnum {decoded.portnum!r} "
+                         f"carries no node info")
+    payload = {
+        "node_id": decoded.from_id,
+        "node_label": label,
+        "role": info.role,
+        "rssi": decoded.rx_rssi,
+        "snr": decoded.rx_snr,
+        "hop": decoded.hops_taken,
+        "channel": decoded.channel,
+        "received_at": received_at,
+        **_relay(decoded),
+    }
+    for name in ("long_name", "short_name", "hw_model", "mac"):
+        if getattr(info, name) is not None:
+            payload[name] = getattr(info, name)
+    return payload
+
+
+def to_neighbor_payloads(decoded: DecodedPacket, label: str, received_at: int) -> list[dict]:
+    """A NeighborInfo report -> one payload per neighbour: a radio the node hears
+    without a hop, and the SNR it hears it at (`neighbor_snr`; `snr` is, as
+    everywhere, the gateway's own reception of the report). `pkt_id` ties one
+    report's neighbours together: a neighbour missing from a node's latest
+    report is one it no longer hears."""
+    report = decoded.neighborinfo
+    if report is None:
+        raise ValueError(f"packet {decoded.packet_id}: portnum {decoded.portnum!r} "
+                         f"carries no neighbour report")
+    common = {
+        "node_id": decoded.from_id,
+        "node_label": label,
+        "pkt_id": decoded.packet_id,
+        "neighbor_count": len(report.neighbors),
+        "rssi": decoded.rx_rssi,
+        "snr": decoded.rx_snr,
+        "hop": decoded.hops_taken,
+        "channel": decoded.channel,
+        "received_at": received_at,
+        **_relay(decoded),
+    }
+    if report.interval_s is not None:
+        common["interval_s"] = report.interval_s
+    return [{**common, "neighbor_id": n.node_id, "neighbor_snr": n.snr}
+            for n in report.neighbors]
+
+
+def relay_node(decoded: DecodedPacket) -> str | None:
+    """The radio the gateway heard transmit this copy: the sender itself at hop
+    0, its last relay otherwise. The firmware gives only the last byte of its
+    num, here in the hex of a node id ("d7" for !403192d7); None when the
+    firmware gives none (older than 2.6)."""
+    byte = decoded.relay_node
+    if not isinstance(byte, int) or isinstance(byte, bool) or not byte & 0xFF:
+        return None
+    return f"{byte & 0xFF:02x}"
+
+
+def _relay(decoded: DecodedPacket) -> dict:
+    relay = relay_node(decoded)
+    return {"relay_node": relay} if relay else {}
 
 
 def meshtastic_text(decoded: DecodedPacket) -> str | None:
