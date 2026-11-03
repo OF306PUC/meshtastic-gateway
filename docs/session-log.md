@@ -77,6 +77,16 @@ debería verse de nuevo en el gateway, porque los cambios no se commitearon.
   no tiene commit en la plataforma. Copia idéntica aquí, sha `a332b436…`. El
   byte de relay sigue siendo `4e`.
 
+### Después del commit `353eecc`
+- **Sin dashboard para el GW** (pedido del usuario). La radio del gateway no
+  emite ningún flujo medido (`intervals: {}` en el yaml), así que sus gráficos
+  quedarían vacíos.
+  - `/api/nodes` agrega la `function` del archivo a cada nodo que lo está.
+  - El mapa ya no muestra «Open dashboard →» en el GW, y un clic en su
+    marcador no navega.
+  - `/dashboard?node=<GW>` muestra el mapa, igual que un id inválido.
+  - 322 tests OK.
+
 ---
 
 ## 2026-11-02 — Último relay, NeighborInfo y confirmación de entrega D1 → D2

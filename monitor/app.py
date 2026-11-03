@@ -105,10 +105,11 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
     @app.route("/dashboard")
     def dashboard():
         node_id = request.args.get("node", "")
-        if not NODE_ID_RE.match(node_id):
-            return render_template("map.html", maps=maps)
         nodes = deployment_nodes(cfg.deployment, log)
         node = next((n for n in nodes if n.node_id == node_id), None)
+        # The gateway's radio broadcasts no measured flow: its charts would stay empty.
+        if not NODE_ID_RE.match(node_id) or (node and node.function == "gateway"):
+            return render_template("map.html", maps=maps)
         # Charts only for what the node carries: no environment flow, no SHT4X
         # (V3b). A node the file does not describe gets them all.
         return render_template("dashboard.html", node_id=node_id,
@@ -130,7 +131,8 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
         reporting its own fix, and the difference is the GPS error — a result,
         not noise. That is why both numbers are returned instead of blended.
         A planned position is a desk choice, shown only until there is anything
-        better; a node not provisioned yet has no node_id.
+        better; a node not provisioned yet has no node_id. A node of the file
+        carries its `function`, so the map links no dashboard for the gateway.
 
         Each node also carries its last uptime, and what it last said it is
         (NODEINFO_APP: hardware, role, name) with the file's role beside the
@@ -144,14 +146,14 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
             if node.surveyed:
                 pos, source = node.surveyed, "surveyed"
             elif gps is not None:
-                out.append({**gps, "source": "gps"})
+                out.append({**gps, "source": "gps", "function": node.function})
                 continue
             elif node.planned:
                 pos, source = node.planned, "planned"
             else:
                 continue
             entry = {"node_id": node.node_id, "node_label": node.name,
-                     "lat": pos.lat, "lon": pos.lon, "source": source}
+                     "lat": pos.lat, "lon": pos.lon, "source": source, "function": node.function}
             if gps is not None:
                 entry["gps_lat"], entry["gps_lon"] = gps["lat"], gps["lon"]
             out.append(entry)

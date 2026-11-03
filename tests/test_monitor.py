@@ -114,9 +114,17 @@ class TestApiNodes(MonitorCase):
     def test_surveyed_preferred_and_gps_kept_beside_it(self):
         nodes = {n["node_id"]: n for n in self.client(_DB(self.GPS)).get("/api/nodes").json}
         self.assertEqual(nodes[N1], {"node_id": N1, "node_label": "node-1", "lat": -27.1127,
-                                     "lon": -109.3497, "source": "surveyed",
+                                     "lon": -109.3497, "source": "surveyed", "function": "node",
                                      "gps_lat": -27.2, "gps_lon": -109.4})
         self.assertEqual(nodes[P1]["source"], "gps", "no survey yet, and GPS beats planned")
+        self.assertEqual(nodes[P1]["function"], "pbx", "the file's, beside the GPS")
+
+    def test_the_map_can_tell_the_gateway_from_a_radio_it_does_not_know(self):
+        gps = [{"node_id": "!aabbccdd", "node_label": "GW", "lat": -27.1, "lon": -109.4},
+               {"node_id": "!0000beef", "node_label": "stray", "lat": -27.2, "lon": -109.5}]
+        nodes = {n["node_id"]: n for n in self.client(_DB(gps)).get("/api/nodes").json}
+        self.assertEqual(nodes["!aabbccdd"]["function"], "gateway")
+        self.assertNotIn("function", nodes["!0000beef"], "not in the file")
 
     def test_each_node_carries_its_last_uptime_and_when(self):
         db = _DB(self.GPS, uptimes={N1: {"uptime_s": 18703, "uptime_at": "2026-10-28T17:25:54Z"}})
@@ -137,7 +145,7 @@ class TestApiNodes(MonitorCase):
     def test_a_planned_site_only_when_there_is_nothing_better(self):
         nodes = {n["node_label"]: n for n in self.client(_DB()).get("/api/nodes").json}
         self.assertEqual(nodes["R1"], {"node_id": None, "node_label": "R1", "lat": -27.25,
-                                       "lon": -109.25, "source": "planned"})
+                                       "lon": -109.25, "source": "planned", "function": "receiver"})
         self.assertEqual(nodes["P1"]["source"], "planned", "no GPS reported yet")
         self.assertEqual(nodes["node-1"]["source"], "surveyed")
         self.assertNotIn("GW", nodes, "no position of any kind")
@@ -306,7 +314,8 @@ class TestMessages(MonitorCase):
 class TestPages(MonitorCase):
     def test_pages(self):
         client = self.client(_DB())
-        for path in ("/", "/map", "/dashboard?node=not-an-id"):
+        # The gateway's radio has no charts: its dashboard is the map, as for a bad id.
+        for path in ("/", "/map", "/dashboard?node=not-an-id", "/dashboard?node=!aabbccdd"):
             with self.subTest(path=path):
                 r = client.get(path)
                 self.assertEqual(r.status_code, 200)
