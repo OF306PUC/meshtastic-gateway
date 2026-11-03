@@ -175,7 +175,9 @@ Tags are not fields: a tag is an indexed dimension, and promoting a field to a
 tag changes the schema in a way that cannot be undone in place. `received_at`
 is the time key everywhere. `relay_node` was a tag from its first day
 (2026-11-02), so the dashboard can count each node's packets per relay with a
-`GROUP BY`; points written before then have no such tag.
+`GROUP BY`, and each node's hop chart names the last relay of every point
+(`get_recent` selects the tag beside `hop`); points written before then have
+no such tag.
 
 ### 2.6 Accounts and ports
 

@@ -26,7 +26,7 @@ import yaml
 from gateway.decode import FLOW_KINDS
 
 __all__ = ["ENV_DEPLOYMENT", "ENV_DEPLOYMENTS_DIR", "Deployment", "DeploymentError",
-           "Node", "Position", "deployments_dir", "load", "parse", "relay_name"]
+           "Node", "Position", "deployments_dir", "load", "parse", "relay_byte", "relay_name"]
 
 ENV_DEPLOYMENT = "MESH_DEPLOYMENT"
 ENV_DEPLOYMENTS_DIR = "MESH_DEPLOYMENTS_DIR"
@@ -186,12 +186,16 @@ def parse(data: Any, *, path: Path, sha256: str) -> Deployment:
                       neighbor_info_on_air=on_air, **described)
 
 
+def relay_byte(node_id: str) -> str:
+    """The relay_node the firmware sends for this radio: the last byte of its
+    num, and 0xff for a num that ends in 00."""
+    return node_id[-2:] if node_id[-2:] != "00" else "ff"
+
+
 def relay_name(relay_node: str, nodes: Iterable[Node]) -> str:
-    """Which node a packet's relay_node is. The firmware sends only the last byte
-    of the relaying radio's num, and 0xff for a num that ends in 00, so two
-    nodes may share it: both are named."""
-    names = [n.name for n in nodes
-             if n.node_id and (n.node_id[-2:] if n.node_id[-2:] != "00" else "ff") == relay_node]
+    """Which node a packet's relay_node is. The byte alone does not identify a
+    radio, so two nodes may share it: both are named."""
+    names = [n.name for n in nodes if n.node_id and relay_byte(n.node_id) == relay_node]
     return "/".join(names) or f"…{relay_node} (not in the deployment file)"
 
 

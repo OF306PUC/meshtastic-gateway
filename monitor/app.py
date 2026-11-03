@@ -12,7 +12,7 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO
 
-from gateway.deployment import Deployment, DeploymentError, Node, load, relay_name
+from gateway.deployment import Deployment, DeploymentError, Node, load, relay_byte, relay_name
 from monitor.param import TOTAL_SAMPLES_48HRS, Config
 from monitor.utils import ALL_FIELDS, NODE_ID_RE, DatabaseError, for_browser
 
@@ -107,13 +107,15 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
         node_id = request.args.get("node", "")
         if not NODE_ID_RE.match(node_id):
             return render_template("map.html", maps=maps)
-        node = next((n for n in deployment_nodes(cfg.deployment, log) if n.node_id == node_id),
-                    None)
+        nodes = deployment_nodes(cfg.deployment, log)
+        node = next((n for n in nodes if n.node_id == node_id), None)
         # Charts only for what the node carries: no environment flow, no SHT4X
         # (V3b). A node the file does not describe gets them all.
         return render_template("dashboard.html", node_id=node_id,
                                node_name=node.name if node else None,
-                               environment=node is None or "environment" in node.intervals)
+                               environment=node is None or "environment" in node.intervals,
+                               relays={relay_byte(n.node_id): relay_name(relay_byte(n.node_id), nodes)
+                                       for n in nodes if n.node_id})
 
     # ── APIs ─────────────────────────────────────────────────────────────────
 

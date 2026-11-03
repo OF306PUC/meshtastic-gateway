@@ -332,6 +332,12 @@ class TestPages(MonitorCase):
                 page = client.get(f"/dashboard?node={node_id}").data
                 self.assertIn(b"const HAS_ENVIRONMENT = " + expected, page)
 
+    def test_the_hop_chart_names_relays_as_the_graph_does(self):
+        page = self.client(_DB()).get(f"/dashboard?node={P1}").data.decode()
+        relays = json.loads(re.search(r"const RELAYS = (\{.*?\});", page).group(1))
+        self.assertEqual(relays["2b"], "node-1")
+        self.assertNotIn(None, relays, "a node without node_id names no relay")
+
     def test_the_brand(self):
         page = self.client(_DB()).get("/map").data
         self.assertIn(b"<title>LoRa Mesh</title>", page)
@@ -428,6 +434,15 @@ class TestInfluxDBConnector(unittest.TestCase):
             self.db.get_nodes_uptime()
         with self.assertRaises(DatabaseError):
             self.db.get_links(24)
+
+    def test_hops_come_with_their_last_relay(self):
+        self.db.client = mock.Mock()
+        self.db.client.query.return_value.get_points.return_value = []
+        self.db.get_recent(N1, "hop", limit=10)
+        self.db.get_recent(N1, "voltage", limit=10)
+        hop_query, voltage_query = (c.args[0] for c in self.db.client.query.call_args_list)
+        self.assertTrue(hop_query.startswith('SELECT "hop", "relay_node" FROM'), hop_query)
+        self.assertTrue(voltage_query.startswith('SELECT "voltage" FROM'), voltage_query)
 
 
 class TestLiveFeed(unittest.TestCase):

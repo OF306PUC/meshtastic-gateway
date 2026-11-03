@@ -173,10 +173,13 @@ class InfluxDBConnector:
         return self._points(q)
 
     def get_recent(self, node_id: str, field: str, limit: int) -> list[dict]:
-        """The last `limit` points of one field on one node, oldest first."""
+        """The last `limit` points of one field on one node, oldest first. Hops
+        come with the last relay of each packet (`relay_node`, a tag: null on
+        points written before 2026-11-02)."""
         if not NODE_ID_RE.match(node_id) or field not in ALL_FIELDS:
             raise ValueError(f"refusing to query node_id={node_id!r} field={field!r}")
-        q = (f'SELECT "{field}" FROM "{self.measurement}" '
+        columns = '"hop", "relay_node"' if field == "hop" else f'"{field}"'
+        q = (f'SELECT {columns} FROM "{self.measurement}" '
              f'WHERE "node_id"=\'{node_id}\' '
              f'ORDER BY time DESC LIMIT {min(int(limit), 5000)}')
         return list(reversed(self._points(q)))

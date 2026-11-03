@@ -97,8 +97,10 @@ radio:
   # radio reused from another mesh keeps that mesh's cadence in silence.
   #
   # 2 h for NodeInfo (firmware default 3 h, floor 1 h): names, roles and public
-  # keys reach a rebooted or replaced node sooner, and the cost is ~0.18 % duty
-  # against the 8.9 % the 120 s telemetry already spends.
+  # keys reach a rebooted or replaced node sooner. Costs ~0.27 % duty, against
+  # the 8.95 % the 120 s device telemetry already spends — measured with
+  # radio/presets.time_on_air_ms over the nine nodes, counting the author plus
+  # the six CLIENT relays for each broadcast.
   node_info_secs: 7200
   # NeighborInfo ON and ON AIR, at the firmware's 4 h floor — the fastest it
   # allows, which is still ~0.16 % duty. Anything slower buys nothing measurable
@@ -182,11 +184,11 @@ nodes:
   - ref: N3
     function: node
     status: planned
-    node_id: null
-    mac: null
+    node_id: "!32f30d4e"
+    mac: "F8:3A:32:FE:0D:4E"
     hardware: sensecap_solar_node_p1_pro
     mcu: nrf52840
-    firmware: null
+    firmware: "2.7.26"
     role: CLIENT
     hop_limit: 3
     antenna:

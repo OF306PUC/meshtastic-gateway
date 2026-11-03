@@ -55,6 +55,21 @@ debería verse de nuevo en el gateway, porque los cambios no se commitearon.
 - Commit y `git pull --ff-only && docker compose up -d --build
   --force-recreate` en pi7.
 
+### Después del commit `9835b02`
+- **N3:** el usuario agregó su `node_id`, MAC y firmware en la plataforma
+  (`6228927`). Copia idéntica aquí, sha `ae11d29d…`: N3 = `!32f30d4e`, byte de
+  relay `4e`, sin choque con los demás nueve.
+- **Último relay en la telemetría:** se publicaba y se guardaba desde el
+  2026-11-02, pero el dashboard de cada nodo solo graficaba los saltos. Ahora
+  `get_recent(…, "hop")` trae también el tag `relay_node`. En el gráfico de
+  saltos, el tooltip dice «hop 1, last relay N6» y el valor en vivo dice «1 ·
+  via N6». Los nombres los arma el servidor con `relay_name()`, igual que en
+  Graph, a partir de `relay_byte()`, que ahora es un helper aparte en
+  `deployment.py`.
+- Verificado contra InfluxDB 1.8 real: un punto sin tag devuelve
+  `relay_node: None`. En la página, el gráfico de N1 muestra «1 · via N6».
+  321 tests OK.
+
 ---
 
 ## 2026-11-02 — Último relay, NeighborInfo y confirmación de entrega D1 → D2
