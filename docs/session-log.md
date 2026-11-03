@@ -70,6 +70,13 @@ debería verse de nuevo en el gateway, porque los cambios no se commitearon.
   `relay_node: None`. En la página, el gráfico de N1 muestra «1 · via N6».
   321 tests OK.
 
+### Después del commit `0ee00a7`
+- **N3 corregido:** el usuario corrigió el `node_id` de N3 en la plataforma.
+  Estaba mal escrito: `!32f30d4e` pasa a `!32fe0d4e`, que ahora coincide con
+  los cuatro últimos bytes de la MAC `F8:3A:32:FE:0D:4E`. El cambio todavía
+  no tiene commit en la plataforma. Copia idéntica aquí, sha `a332b436…`. El
+  byte de relay sigue siendo `4e`.
+
 ---
 
 ## 2026-11-02 — Último relay, NeighborInfo y confirmación de entrega D1 → D2

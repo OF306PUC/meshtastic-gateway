@@ -184,7 +184,7 @@ nodes:
   - ref: N3
     function: node
     status: planned
-    node_id: "!32f30d4e"
+    node_id: "!32fe0d4e"
     mac: "F8:3A:32:FE:0D:4E"
     hardware: sensecap_solar_node_p1_pro
     mcu: nrf52840
