@@ -7,7 +7,8 @@ from gateway.deployment import Deployment
 __all__ = ["warnings"]
 
 
-def warnings(dep: Deployment, cfg: Config, my_id: str | None, my_role: str | None) -> list[str]:
+def warnings(dep: Deployment, cfg: Config, my_id: str | None, my_role: str | None,
+             my_neighbor_info: bool) -> list[str]:
     out = []
     me = dep.known_nodes().get(my_id) if my_id else None
     if me is None:
@@ -19,6 +20,12 @@ def warnings(dep: Deployment, cfg: Config, my_id: str | None, my_role: str | Non
     if my_role != "CLIENT_MUTE":
         out.append(f"this radio's role is {my_role}, not CLIENT_MUTE: if it rebroadcasts, "
                    f"it contaminates its own measurement (G6). Provision it from the platform")
+    # Router::handleReceived drops a NeighborInfo packet before any module, the
+    # one that hands packets to this computer included, when the module is off.
+    if dep.neighbor_info_on_air and not my_neighbor_info:
+        out.append("this radio's NeighborInfo module is off: its firmware drops every "
+                   "NeighborInfo report it hears, so none reaches the gateway. Provision "
+                   "it from the platform")
     cadences = [s for n in dep.nodes if n.node_id for s in n.intervals.values()]
     if cadences and cfg.sweep_interval_sec >= min(cadences):
         out.append(f"PDR_SWEEP_INTERVAL_SEC={cfg.sweep_interval_sec} is not below the "

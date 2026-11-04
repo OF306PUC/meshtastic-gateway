@@ -1,4 +1,5 @@
 """Settings from the environment; what could point at the wrong place is required."""
+import dataclasses
 import os
 import subprocess
 import sys
@@ -58,24 +59,31 @@ class TestStartupWarnings(unittest.TestCase):
         self.cfg = from_env(REQUIRED)
 
     def test_a_correct_setup_is_quiet(self):
-        self.assertEqual(startup.warnings(self.dep, self.cfg, "!aabbccdd", "CLIENT_MUTE"), [])
+        self.assertEqual(startup.warnings(self.dep, self.cfg, "!aabbccdd", "CLIENT_MUTE", True), [])
 
     def test_radio_not_in_the_deployment(self):
-        [w] = startup.warnings(self.dep, self.cfg, "!deadbeef", "CLIENT_MUTE")
+        [w] = startup.warnings(self.dep, self.cfg, "!deadbeef", "CLIENT_MUTE", True)
         self.assertIn("not in test-mesh.yaml", w)
 
     def test_radio_declared_as_something_else(self):
-        [w] = startup.warnings(self.dep, self.cfg, "!0b64122b", "CLIENT_MUTE")
+        [w] = startup.warnings(self.dep, self.cfg, "!0b64122b", "CLIENT_MUTE", True)
         self.assertIn("'node', not 'gateway'", w)
 
     def test_a_radio_that_relays_contaminates_the_measurement(self):
-        [w] = startup.warnings(self.dep, self.cfg, "!aabbccdd", "CLIENT")
+        [w] = startup.warnings(self.dep, self.cfg, "!aabbccdd", "CLIENT", True)
         self.assertIn("G6", w)
 
     def test_sweep_slower_than_the_shortest_cadence(self):
         cfg = from_env({**REQUIRED, "PDR_SWEEP_INTERVAL_SEC": "120"})
-        [w] = startup.warnings(self.dep, cfg, "!aabbccdd", "CLIENT_MUTE")
+        [w] = startup.warnings(self.dep, cfg, "!aabbccdd", "CLIENT_MUTE", True)
         self.assertIn("shortest cadence (120 s)", w)
+
+    def test_a_radio_without_the_neighborinfo_module_drops_every_report(self):
+        [w] = startup.warnings(self.dep, self.cfg, "!aabbccdd", "CLIENT_MUTE", False)
+        self.assertIn("NeighborInfo module is off", w)
+        off_air = dataclasses.replace(self.dep, neighbor_info_on_air=False)
+        self.assertEqual(startup.warnings(off_air, self.cfg, "!aabbccdd", "CLIENT_MUTE", False), [],
+                         "no report goes on air: nothing to drop")
 
 
 class TestMainFailsLoudly(unittest.TestCase):

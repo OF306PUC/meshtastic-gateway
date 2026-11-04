@@ -20,6 +20,57 @@ Entry format:
 
 ---
 
+## 2026-11-04 — ¿Llegaron NodeInfo y NeighborInfo a pi7?
+**Time:** 08:00 (aprox)
+**User request:** revisar si en algún momento llegaron mensajes NeighborInfo y
+NodeInfo.
+
+### Actions taken
+- Solo lectura en pi7: InfluxDB (usuario de lectura), logs de
+  `gateway-receiver` e informe periódico `[GW] Report`. pi7 está en
+  `bb1703c`; sus contenedores se recrearon el 2026-11-03 a las 18:51Z.
+
+### Outcomes
+- **NodeInfo sí llega.** Hay 64 puntos en `nodeinfo` desde el 2026-11-03
+  13:41Z, de N1–N6, todos a hop 0. Todos dicen `SEEED_SOLAR_NODE` y
+  `CLIENT`, igual que el archivo, y sus MAC coinciden con los `node_id`.
+  - Desde ~19:00Z llegan cada 2 h. Antes llegaban cada 3 h, el valor de
+    fábrica. O sea, las radios recibieron `node_info_broadcast_secs 7200`.
+  - Del GW no se guarda nada: el receptor descarta sus propios paquetes
+    (`discarded.own`).
+  - De D1 y D2 no llegó ningún paquete, de ningún tipo.
+- **NeighborInfo nunca llegó.** La medición `neighbor` no existe. Desde
+  18:51Z el receptor oyó 4341 paquetes, todos `device`, `environment` o
+  `nodeinfo`, con `unknown_portnum` vacío.
+  - Los nodos llevan ~15,5 h encendidos sin reiniciarse (arrancaron a
+    ~19:30Z, tras la segunda ronda de reinicios del aprovisionamiento).
+  - Con `interval_secs: 14400`, cada uno debería haber enviado unos tres
+    reportes.
+  - El canal primario (`EasterNetT`) tiene clave propia, así que el firmware
+    no tiene motivo para retener el envío por radio.
+- **Los nodos están bien configurados.** El usuario inspeccionó N4 (`inspect
+  -d rapa-nui --node N4`, sin diferencias): `neighbor_info` activo, 14400 s,
+  `transmit_over_lora` true. N4 no se reinició (56556 s de uptime a las 11:15Z).
+- **El gateway no filtra por portnum.** El receptor se suscribe a
+  `meshtastic.receive`, que incluye todos sus subtemas, y cuenta cada paquete
+  antes de cualquier filtro. Un NeighborInfo aparecería en `by_kind`.
+- **Causa probable: la radio del GW.** En el firmware 2.7,
+  `Router::handleReceived` marca `skipHandle` en un paquete `NEIGHBORINFO_APP`
+  cuando la radio que lo recibe tiene el módulo apagado. Ningún módulo lo ve,
+  tampoco `RoutingModule`, que es el que entrega por serie. La plataforma
+  escribe el beacon en toda radio, pero el GW está conectado a pi7 y quizás
+  no se aprovisionó después del 2026-11-02.
+- Nueva advertencia de arranque: `startup.warnings()` recibe
+  `moduleConfig.neighbor_info.enabled` de la radio del gateway y avisa si el
+  archivo pone NeighborInfo en el aire con el módulo apagado. La línea
+  `[GW] Gateway radio:` muestra `neighbor_info=on|off`. 323 tests OK.
+
+### Next steps / open questions
+- Deploy en pi7: la línea `[GW] Gateway radio:` dirá si el módulo del GW está
+  apagado. Si lo está, aprovisionar el GW desde la plataforma.
+
+---
+
 ## 2026-11-03 — Pedido al PBX: acuse de recibo; estado de lo no commiteado
 **Time:** (aprox)
 **User request:** dejar escrito para el PBX lo de la confirmación D1 → D2; qué

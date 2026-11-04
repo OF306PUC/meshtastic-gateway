@@ -66,8 +66,10 @@ def main() -> int:
     me = iface.getMyNodeInfo() or {}
     my_id, my_num = me.get("user", {}).get("id"), me.get("num")
     role = RadioConfig.DeviceConfig.Role.Name(iface.localNode.localConfig.device.role)
-    print(f"[GW] Gateway radio: {my_id} (num={my_num}, role={role}) on {cfg.serial_port}")
-    for warning in startup.warnings(dep, cfg, my_id, role):
+    neighbor_info = iface.localNode.moduleConfig.neighbor_info.enabled
+    print(f"[GW] Gateway radio: {my_id} (num={my_num}, role={role}, "
+          f"neighbor_info={'on' if neighbor_info else 'off'}) on {cfg.serial_port}")
+    for warning in startup.warnings(dep, cfg, my_id, role, neighbor_info):
         print(f"[GW] WARNING: {warning}")
 
     receiver = Receiver(mqtt, nodes, pdr_window_sec=cfg.pdr_window_sec,

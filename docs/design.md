@@ -113,7 +113,10 @@ gateway's own reception of the report. `pkt_id` ties one report's neighbours
 together, and a neighbour missing from a node's latest report is one it no
 longer hears. A node reports every `radio.neighbor_info.interval_secs` of the
 deployment file (firmware floor 4 h), and only with `transmit_over_lora: true`
-does the report go on air. The firmware forgets a silent neighbour after twice
+does the report go on air. The gateway's radio needs the module on as well: a
+radio with it off drops every NeighborInfo packet it hears before any module
+sees it (`Router::handleReceived`), so none reaches this computer.
+The firmware forgets a silent neighbour after twice
 the interval, so the dashboard keeps a report for as long. No PDR fields: the
 platform does not declare it among a node's `intervals`.
 
@@ -262,7 +265,8 @@ for flow in decoded.flows:                      # 'device' | 'environment' | 'po
   warns once about a neighbour that is not in the file (a radio whose own
   packets may never reach the gateway), and warns when a node reports on an
   interval other than the file's. At start it says whether NeighborInfo is
-  off, local only, or on air.
+  off, local only, or on air, and warns when the file puts it on air but the
+  gateway's own radio has the module off.
 - A `[MSG]` line names a relayed message's last relay.
 - **The first 10 s after start-up are published but not scored.** Opening the
   serial port restarts the radio, which then hands over, at once, the packets
