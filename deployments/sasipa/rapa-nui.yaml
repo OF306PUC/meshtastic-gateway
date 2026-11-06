@@ -91,6 +91,12 @@ radio:
   tx_power_policy: declared
   position_precision: 32         # full precision: the sender masks the rest away for good
   rx_boosted_gain: true
+  # The .env variable holding the BLE pairing PIN — the NAME, never the number
+  # (rule 8). Without this key every radio keeps what the firmware chose on its
+  # first boot, and the SenseCAP has no screen, so that is FIXED_PIN at the
+  # default Meshtastic publishes: anyone within BLE range could pair and
+  # reconfigure the node from the app. Set it in .env before provisioning.
+  ble_pin_env: EASTERNET_BLE_PIN
   # Background beacons, in seconds. Not `intervals` flows: NodeInfo cannot be
   # switched off and both run at hours scale, so no estimator measures a gap
   # against them. They are written explicitly anyway, OFF case included, or a
@@ -343,7 +349,7 @@ nodes:
     mcu: esp32
     firmware: "2.7.26"
     role: CLIENT_MUTE
-    hop_limit: 1
+    hop_limit: 3
     antenna:
       type: rubber
       gain_dbi: 2.0
@@ -370,7 +376,7 @@ nodes:
     mcu: esp32
     firmware: "2.7.26"
     role: CLIENT_MUTE
-    hop_limit: 1
+    hop_limit: 3
     antenna:
       type: rubber
       gain_dbi: 2.0
