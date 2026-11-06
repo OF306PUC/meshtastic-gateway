@@ -20,6 +20,56 @@ Entry format:
 
 ---
 
+## 2026-11-06 — rapa-nui.yaml re-sincronizado; el access point no levanta al arrancar
+**Time:** (aprox)
+**User request:** copiar `rapa-nui.yaml` de la platform. Al reiniciar, rpi13
+(`expense-tracker-ap`) y pi7 (`terrain-ap`) se conectan a la oficina en vez de
+levantar su access point. Luego: dejar ambas arrancando siempre como access
+point, para conectarse a cada una desde la laptop, y la guía con ese criterio.
+
+### Actions taken
+- `deployments/sasipa/rapa-nui.yaml` copiado byte a byte de la platform
+  (`ble_pin_env: EASTERNET_BLE_PIN`; `hop_limit` 3 en D1 y D2). El gateway lo
+  carga; 323 tests OK.
+- Diagnóstico por SSH (solo lectura) y el log de NetworkManager del arranque:
+  - rpi13: `expense-tracker-ap` con autoconnect `no`. Solo se había activado
+    con `nmcli connection up`, que no sobrevive al reboot.
+  - pi7: `terrain-ap` con autoconnect `yes` pero prioridad 0, igual que
+    `preconfigured`. En empate, NetworkManager elige el último usado: la
+    oficina.
+- A pedido del usuario, ambas Pis arrancan siempre como access point, también
+  en la oficina:
+  - rpi13: `expense-tracker-ap` pasa a `10.42.1.1/24`.
+  - Prueba que se revierte sola en cada una (`systemd-run`): levanta el AP,
+    anota su estado y vuelve a `preconfigured`. pi7: `meshtastic-gw` en
+    `10.42.0.1`, tipo AP, canal 6. rpi13: `expense-tracker` en `10.42.1.1`.
+    Ambas volvieron a la oficina.
+  - AP con autoconnect `yes` y prioridad 10; `preconfigured` con autoconnect
+    `no`. Siguen en la oficina hasta el próximo reboot.
+- `docs/field-hotspot.md` reescrito con ese criterio: el paso 3 deja el AP
+  como red de arranque (y apaga el autoconnect de la oficina); "After every
+  boot" (el reloj se ajusta también en la oficina); §5 entra a la oficina un
+  rato (`nmcli connection up preconfigured`, hasta el próximo boot); §6 deja
+  de arrancar como AP; otra Pi en el mismo banco usa otra subred; internet
+  junto al AP necesita una segunda interfaz. README actualizado.
+
+### Decisions
+- Mejor que un access point que no levanta deje al host sin red (falla
+  visible) que conectarlo en silencio a la oficina.
+- rpi13 usa `10.42.1.1/24` para no repetir la dirección `10.42.0.1` de pi7.
+- La prueba del AP se hizo antes de apagar el autoconnect de la oficina: si
+  fallaba, NetworkManager volvía solo a `preconfigured`.
+
+### Next steps / open questions
+- Con el AP como red de arranque, pi7 queda sin internet ni NTP: el reloj se
+  ajusta desde la laptop después de cada boot, y `ssh pi7` (`10.6.5.7`) no
+  responde salvo tras `nmcli connection up preconfigured`.
+- rpi13 a internet por una red WiFi: el Pi 4 no puede ser cliente y AP a la
+  vez con su radio interna; hace falta un adaptador USB WiFi o cable
+  Ethernet.
+
+---
+
 ## 2026-11-05 — Pendientes: envíos con ACK y vista de PDR en vivo
 **Time:** (aprox)
 **User request:** ¿el gateway puede enviar mensajes ruteados y recibir el ACK
