@@ -108,20 +108,38 @@ connection show` must list `terrain-ap` as `yes 10` and `preconfigured` as
    after a night unplugged by the whole night.
 4. Open `http://10.42.0.1/`.
 
-## 5. On the office network for a while
+## 5. On another WiFi network for a while
 
-For what needs the office network or the internet: `git pull` and
-`docker compose up -d --build`, pulling an image. Join `meshtastic-gw`,
-`ssh rpi7@10.42.0.1`, then:
+Running the gateway needs no other network: the containers start at boot on
+the access point, and the dashboard, its map included, is served from the
+host. The internet is needed to download: `git pull`, a missing image, and a
+build that installs packages (the first one, or after `requirements.txt`
+changes). Join `meshtastic-gw`, `ssh rpi7@10.42.0.1`, then:
 
 ```bash
-sudo nmcli connection up preconfigured
+sudo systemd-run --collect /bin/sh -c 'nmcli connection up preconfigured || nmcli connection up terrain-ap'
 ```
 
-The SSH session freezes. Rejoin `oficina_v2` on the laptop and
-`ssh rpi7@10.6.5.7`; the clock syncs by itself (NTP). The host stays on the
-office network until its next boot, which brings the access point back. To
-return sooner: `sudo nmcli connection up terrain-ap`.
+The SSH session freezes: the access point is gone. `systemd-run` keeps the
+command running without it, and if the network cannot be joined (out of
+range, a wrong password) the host brings its access point back. Rejoin
+`oficina_v2` on the laptop and `ssh rpi7@10.6.5.7`; the clock syncs by itself
+(NTP). The host stays there until its next boot, which brings the access
+point back. To return sooner: `sudo nmcli connection up terrain-ap`.
+
+Any other network with internet (a home network, a phone's hotspot) needs its
+profile once, with autoconnect off so it never competes with the access point
+at boot:
+
+```bash
+sudo nmcli connection add type wifi ifname wlan0 con-name <name> autoconnect no \
+  ssid "<its SSID>" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "<its password>"
+```
+
+Then the command above with `<name>` for `preconfigured`. On that network the
+host's address comes from its router: reach it as `<hostname>.local`
+(`raspberrypi.local` until the host is renamed), or find it in the router's
+list of clients.
 
 ## 6. Stop booting as an access point
 

@@ -64,9 +64,19 @@ point, para conectarse a cada una desde la laptop, y la guía con ese criterio.
 - Con el AP como red de arranque, pi7 queda sin internet ni NTP: el reloj se
   ajusta desde la laptop después de cada boot, y `ssh pi7` (`10.6.5.7`) no
   responde salvo tras `nmcli connection up preconfigured`.
-- rpi13 a internet por una red WiFi: el Pi 4 no puede ser cliente y AP a la
-  vez con su radio interna; hace falta un adaptador USB WiFi o cable
-  Ethernet.
+- rpi13 a internet por la WiFi de la casa del usuario: alterna, no ambas a la
+  vez (la radio del Pi 4 no es cliente y AP al mismo tiempo). Perfil propio
+  con autoconnect `no`, y `systemd-run ... nmcli connection up <perfil> ||
+  nmcli connection up expense-tracker-ap`: sobrevive al corte del SSH y, si
+  no se une, vuelve al AP. `docs/field-hotspot.md` §5 pasa a "otra red WiFi
+  por un rato". No probado en las Pis: al pedirlo ya habían reiniciado como
+  AP y no se alcanzan desde la oficina.
+- ¿Docker necesita una red WiFi? Para correr, no: los seis servicios son
+  `restart: unless-stopped`, todo es local (red interna de Docker, radio por
+  USB, proxy en el puerto 80 de toda interfaz, mapa `basemap.pmtiles` en el
+  repo). Internet solo para descargar: `git pull`, imágenes que falten, un
+  build que instala paquetes (apt-get y pip en los Dockerfiles). Anotado en
+  `docs/field-hotspot.md` §5.
 
 ---
 

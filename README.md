@@ -57,7 +57,7 @@ python3 -m venv .venv
 - [`docs/troubleshooting.md`](docs/troubleshooting.md) — by symptom; nearly
   every failure here is a silent one.
 - [`docs/field-hotspot.md`](docs/field-hotspot.md) — the host brings up its
-  own WiFi at every boot, office included; joining the office network for a
+  own WiFi at every boot, office included; joining another network for a
   while.
 - [`docs/architecture/pdr-cadence-tracker.md`](docs/architecture/pdr-cadence-tracker.md)
   — how the delivery ratio is estimated (in Spanish).
