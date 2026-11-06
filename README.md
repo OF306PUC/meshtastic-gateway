@@ -63,4 +63,8 @@ python3 -m venv .venv
 - [`docs/architecture/message-delivery.md`](docs/architecture/message-delivery.md)
   — what the gateway can and cannot confirm about a message between two
   access points, and the receipt that would confirm it.
+- [`docs/future-work.md`](docs/future-work.md) — features asked for and not
+  built yet, with their urgency and the deployment each is for.
+- [`docs/architecture/acknowledged-sends.md`](docs/architecture/acknowledged-sends.md)
+  — the gateway sending to one node and confirming it by its ACK (future work).
 - [`docs/session-log.md`](docs/session-log.md) — what was done, when, and why.

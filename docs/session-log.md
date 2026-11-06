@@ -20,6 +20,32 @@ Entry format:
 
 ---
 
+## 2026-11-05 — Pendientes: envíos con ACK y vista de PDR en vivo
+**Time:** (aprox)
+**User request:** ¿el gateway puede enviar mensajes ruteados y recibir el ACK
+por ROUTING_APP? ¿Recibe un ROUTING_APP por los mensajes dirigidos a él?
+Dejarlo listado en un md aparte, como pendiente urgente y no para Isla de
+Pascua. Agregar también una vista en tiempo real del PDR por cadencia.
+
+### Actions taken
+- Leídos el firmware 2.7 (`ReliableRouter`, `NextHopRouter`,
+  `RoutingModule`) y `meshtastic` 2.7.8 (`sendData`, `Node.onAckNak`).
+- Respuestas:
+  - el gateway no transmite nada;
+  - el ACK de un mensaje dirigido al GW lo envía su radio sin pasar por el
+    computador;
+  - un ROUTING_APP dirigido al GW se cuenta y no se publica;
+  - el ACK implícito (`from` = la propia radio) no confirma entrega.
+- `docs/architecture/acknowledged-sends.md` (nuevo): estado actual, qué hace
+  el firmware, qué construir y qué decidir antes.
+- `docs/future-work.md` (nuevo): lista de pendientes.
+  1. Envíos con ACK: urgente, no para `sasipa/rapa-nui`.
+  2. Vista de PDR en vivo por flujo: los datos ya se publican y se guardan,
+     pero el dashboard no los lee.
+- Enlaces desde `README.md` y `message-delivery.md`.
+
+---
+
 ## 2026-11-04 — ¿Llegaron NodeInfo y NeighborInfo a pi7?
 **Time:** 08:00 (aprox)
 **User request:** revisar si en algún momento llegaron mensajes NeighborInfo y

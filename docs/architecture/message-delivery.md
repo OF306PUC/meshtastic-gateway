@@ -3,7 +3,8 @@
 **Status: a proposal, not built.** The receipt it describes belongs to the PBX
 project's frame protocol; the gateway only records what it hears. The request
 went to the PBX project on 2026-11-03 as a shared document, "PBX delivery
-receipts"; §3 is its summary.
+receipts"; §3 is its summary. Confirming the gateway's own sends is another
+feature: [acknowledged-sends.md](acknowledged-sends.md).
 
 **The question.** A phone on access node D1 sends a message to a phone on access
 node D2. Did it reach D2? This document records what the gateway can and
