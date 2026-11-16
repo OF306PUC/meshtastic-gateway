@@ -7,16 +7,20 @@ literals of their own (G4).
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping
 
 from gateway.config import ConfigError
 from gateway.publish import topic_prefix_from_env
 
-__all__ = ["Config", "TOTAL_SAMPLES_48HRS", "from_env"]
+__all__ = ["Config", "ENV_OUT_OF_SERVICE", "ENV_POPUP_AT", "TOTAL_SAMPLES_48HRS", "from_env"]
 
 TOTAL_SAMPLES_48HRS = 576
 LIVE_KINDS = ("position", "device", "environment", "message")
+ENV_OUT_OF_SERVICE = "MONITOR_ENVIRONMENT_OUT_OF_SERVICE"
+ENV_MESSAGE_POPUP = "MONITOR_MESSAGE_POPUP_SEC"
+ENV_POPUP_AT = "MONITOR_MESSAGE_POPUP_AT"
+DEFAULT_MESSAGE_POPUP_SEC = 30
 
 
 @dataclass(frozen=True)
@@ -34,6 +38,15 @@ class Config:
     subscribe_topics: list[str]        # what the pages draw: telemetry and messages
     deployment: str | None             # for surveyed positions; unset = GPS only
     allowed_origins: list[str] | None  # None: same origin only (the proxy's own address)
+    # Refs of the nodes whose environment sensor is out of service in the field:
+    # their dashboard hides the temperature and humidity charts. A setting of the
+    # dashboard, not of the mesh: the deployment file is the platform's (G10).
+    environment_out_of_service: tuple[str, ...] = ()
+    # How long the map holds the popup of a new message over its node.
+    message_popup_sec: int = DEFAULT_MESSAGE_POPUP_SEC
+    # Sender ref -> the ref whose marker shows its messages: an access node with
+    # no position, shown at a node that has one.
+    message_popup_at: Mapping[str, str] = field(default_factory=dict)
 
 
 def _port(env: Mapping[str, str], name: str, default: int) -> int:
@@ -41,6 +54,32 @@ def _port(env: Mapping[str, str], name: str, default: int) -> int:
         return int(env.get(name) or default)
     except ValueError:
         raise ConfigError(f"{name}: expected a port number, got {env[name]!r}") from None
+
+
+def _seconds(env: Mapping[str, str], name: str, default: int) -> int:
+    raw = env.get(name)
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise ConfigError(f"{name}: expected a positive number of seconds, got {raw!r}")
+    return value
+
+
+def _popup_at(env: Mapping[str, str], name: str) -> dict[str, str]:
+    """D1:N1,D2:N2 -> {"D1": "N1", "D2": "N2"}."""
+    out = {}
+    for entry in filter(None, (e.strip() for e in env.get(name, "").split(","))):
+        sender, sep, anchor = (p.strip() for p in entry.partition(":"))
+        if not (sep and sender and anchor):
+            raise ConfigError(f"{name}: expected <sender ref>:<node ref> pairs separated by ',', "
+                              f"got {entry!r}")
+        out[sender] = anchor
+    return out
+
 
 
 def from_env(environ: Mapping[str, str] = os.environ) -> Config:
@@ -71,4 +110,9 @@ def from_env(environ: Mapping[str, str] = os.environ) -> Config:
         # (gateway.local, an IP); a list is only needed for another site.
         allowed_origins=[o.strip() for o in environ["MONITOR_ALLOWED_ORIGINS"].split(",")
                          if o.strip()] if environ.get("MONITOR_ALLOWED_ORIGINS") else None,
+        environment_out_of_service=tuple(ref.strip() for ref in
+                                         environ.get(ENV_OUT_OF_SERVICE, "").split(",")
+                                         if ref.strip()),
+        message_popup_sec=_seconds(environ, ENV_MESSAGE_POPUP, DEFAULT_MESSAGE_POPUP_SEC),
+        message_popup_at=_popup_at(environ, ENV_POPUP_AT),
     )

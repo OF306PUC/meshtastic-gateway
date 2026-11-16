@@ -106,6 +106,28 @@ class TestParam(unittest.TestCase):
         cfg = from_env({**ENV, "MONITOR_ALLOWED_ORIGINS": "http://a:5000, http://b:5000"})
         self.assertEqual(cfg.allowed_origins, ["http://a:5000", "http://b:5000"])
 
+    def test_environment_sensors_out_of_service_are_refs(self):
+        self.assertEqual(from_env(ENV).environment_out_of_service, ())
+        cfg = from_env({**ENV, "MONITOR_ENVIRONMENT_OUT_OF_SERVICE": " N1, ,N3 "})
+        self.assertEqual(cfg.environment_out_of_service, ("N1", "N3"))
+
+    def test_the_message_popup_hold_defaults_and_refuses_nonsense(self):
+        self.assertEqual(from_env(ENV).message_popup_sec, 30)
+        self.assertEqual(from_env({**ENV, "MONITOR_MESSAGE_POPUP_SEC": "45"}).message_popup_sec, 45)
+        for bad in ("0", "-5", "ten"):
+            with self.subTest(value=bad):
+                with self.assertRaisesRegex(ConfigError, "MONITOR_MESSAGE_POPUP_SEC"):
+                    from_env({**ENV, "MONITOR_MESSAGE_POPUP_SEC": bad})
+
+    def test_message_popups_at_another_nodes_marker(self):
+        self.assertEqual(from_env(ENV).message_popup_at, {})
+        cfg = from_env({**ENV, "MONITOR_MESSAGE_POPUP_AT": " D1:N1 , D2 : N2 ,"})
+        self.assertEqual(cfg.message_popup_at, {"D1": "N1", "D2": "N2"})
+        for bad in ("D1", "D1:", ":N1"):
+            with self.subTest(value=bad):
+                with self.assertRaisesRegex(ConfigError, "MONITOR_MESSAGE_POPUP_AT"):
+                    from_env({**ENV, "MONITOR_MESSAGE_POPUP_AT": bad})
+
 
 class TestApiNodes(MonitorCase):
     GPS = [{"node_id": N1, "node_label": "node-1", "lat": -27.2, "lon": -109.4},
@@ -325,6 +347,40 @@ class TestPages(MonitorCase):
         self.assertIn(b'id="dash-error"', r.data)
         self.assertIn(b'id="graph"', client.get("/graph").data)
 
+    def test_tabs_in_order_map_messages_graph(self):
+        nav = re.search(r'<nav class="topbar">(.*?)</nav>',
+                        self.client(_DB()).get("/map").data.decode(), re.S).group(1)
+        self.assertEqual(re.findall(r'href="(/\w+)"', nav), ["/map", "/messages", "/graph"])
+
+    def test_the_map_holds_message_popups_and_names_every_node_of_the_file(self):
+        for env, hold in (({}, 30), ({"MONITOR_MESSAGE_POPUP_SEC": "12"}, 12)):
+            client = self.client(_DB(), **env)
+            # The map, and the dashboard of a bad id, which falls back to it.
+            for path in ("/map", "/dashboard?node=not-an-id"):
+                with self.subTest(path=path, hold=hold):
+                    page = client.get(path).data.decode()
+                    self.assertIn(f"const MESSAGE_HOLD_SEC = {hold};", page)
+                    names = json.loads(re.search(r"const NODE_NAMES = (\{.*?\});", page).group(1))
+                    # Every node with an id, a position or not; R1 has no id.
+                    self.assertEqual(names, {N1: "node-1", P1: "P1", "!aabbccdd": "GW"})
+        page = self.client(_DB(), MESH_DEPLOYMENT="").get("/map").data.decode()
+        self.assertIn("const NODE_NAMES = {};", page)
+        # A message does not pan the map, nor close the popup the viewer opened.
+        self.assertIn("autoPan: false", page)
+        self.assertIn(".addTo(map)", page)
+        self.assertNotIn(".openOn(map)", page)
+
+    def test_a_senders_messages_pop_up_at_the_marker_it_is_given(self):
+        page = self.client(_DB(), MONITOR_MESSAGE_POPUP_AT="P1:N1,R1:N1,X9:N1").get("/map").data.decode()
+        at = json.loads(re.search(r"const POPUP_AT = (\{.*?\});", page).group(1))
+        self.assertEqual(at, {P1: N1}, "by node_id; R1 has none, X9 is not in the file")
+        self.assertEqual(len(self.logs), 2, self.logs)
+        self.assertIn("R1, which has no node_id", self.logs[0])
+        self.assertIn("X9, which is not a ref", self.logs[1])
+        page = self.client(_DB()).get("/map").data.decode()
+        self.assertIn("const POPUP_AT = {};", page)
+        self.assertEqual(self.logs, [])
+
     def test_the_client_logo_is_on_the_charts_and_served_here(self):
         client = self.client(_DB())
         logo = re.search(r'<img class="client-logo" src="([^"]+)"',
@@ -340,6 +396,29 @@ class TestPages(MonitorCase):
             with self.subTest(node_id=node_id):
                 page = client.get(f"/dashboard?node={node_id}").data
                 self.assertIn(b"const HAS_ENVIRONMENT = " + expected, page)
+                self.assertNotIn(b"out of service", page)
+
+    def test_no_climate_charts_for_a_sensor_out_of_service_and_the_page_says_why(self):
+        client = self.client(_DB(), MONITOR_ENVIRONMENT_OUT_OF_SERVICE="N1")
+        page = client.get(f"/dashboard?node={N1}").data
+        self.assertIn(b"const HAS_ENVIRONMENT = false", page)
+        self.assertIn(b"Environment sensor out of service", page)
+        # P1 declares no environment flow; !0000beef is not in the file.
+        for node_id, expected in ((P1, b"false"), ("!0000beef", b"true")):
+            with self.subTest(node_id=node_id):
+                page = client.get(f"/dashboard?node={node_id}").data
+                self.assertIn(b"const HAS_ENVIRONMENT = " + expected, page)
+                self.assertNotIn(b"out of service", page)
+        self.assertEqual(self.logs, [], "N1 has the flow: nothing to warn about")
+
+    def test_a_ref_out_of_service_that_hides_nothing_is_warned_at_start(self):
+        self.client(_DB(), MONITOR_ENVIRONMENT_OUT_OF_SERVICE="P1,N9")
+        self.assertEqual(len(self.logs), 2, self.logs)
+        self.assertIn("P1, which declares no environment flow", self.logs[0])
+        self.assertIn("N9, which is not a ref in test-mesh.yaml", self.logs[1])
+        self.client(_DB(), MONITOR_ENVIRONMENT_OUT_OF_SERVICE="N1", MESH_DEPLOYMENT="")
+        self.assertEqual(len(self.logs), 1, self.logs)
+        self.assertIn("needs MESH_DEPLOYMENT", self.logs[0])
 
     def test_the_hop_chart_names_relays_as_the_graph_does(self):
         page = self.client(_DB()).get(f"/dashboard?node={P1}").data.decode()

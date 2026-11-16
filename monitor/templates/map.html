@@ -3,11 +3,32 @@
 
 {% block head %}
 <script src="{{ url_for('static', filename='vendor/protomaps-leaflet-5.1.0/protomaps-leaflet.js') }}"></script>
+<style>
+  /* A live message over the node that sent it */
+  .msg-popup .leaflet-popup-content { margin: 10px 12px; min-width: 180px; }
+  .msg-head { display: block; color: var(--accent); font-weight: 600; text-decoration: none; }
+  .msg-entry + .msg-entry { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px; }
+  .msg-route { color: var(--muted); font-size: 12px; }
+  .msg-text { margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  /* ...or in the corner, when the sender has no marker */
+  #msg-toasts {
+      position: fixed; left: 12px; bottom: 48px; z-index: 1000;
+      display: flex; flex-direction: column; gap: 6px; max-width: 320px;
+  }
+  .msg-toast {
+      background: var(--panel-2); color: var(--text); font-size: 13px;
+      border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px;
+  }
+  .msg-toast a, .msg-popup a { color: var(--accent); font-weight: 600; }
+  #live-status { margin-left: 16px; }
+  #live-status.down { color: var(--danger); }
+</style>
 {% endblock %}
 
 {% block content %}
 <div id="map"></div>
-<div id="map-status"><span id="nodes-status">Fetching node positions…</span><span id="relief-status"></span></div>
+<div id="msg-toasts"></div>
+<div id="map-status"><span id="nodes-status">Fetching node positions…</span><span id="live-status"></span><span id="relief-status"></span></div>
 
 <script>
 (function () {
@@ -111,6 +132,7 @@
                 });
 
                 markerLayer.clearLayers();
+                markersById.clear();
                 const bounds = [];
                 sites.forEach(group => {
                     const { lat, lon, source } = group[0];
@@ -118,6 +140,7 @@
                     const marker = L.circleMarker([lat, lon],
                         source === "planned" ? PLANNED_STYLE : NODE_STYLE).addTo(markerLayer);
                     bounds.push([lat, lon]);
+                    group.forEach(n => { if (n.node_id) markersById.set(n.node_id, marker); });
 
                     const popup = document.createElement("div");
                     group.forEach((n, i) => {
@@ -198,6 +221,123 @@
             })
             .catch(e => { status.textContent = `Error loading nodes: ${e.message}`; console.error(e); });
     }
+
+    // ── New messages, live: a popup over the node that sent it ───────────
+    // Each message is held MESSAGE_HOLD_SEC seconds from its arrival
+    // (MONITOR_MESSAGE_POPUP_SEC in .env). Messages that land on one marker
+    // share its popup, listed in the order they arrived, so none covers
+    // another; the popup closes when its last message expires. A sender can be
+    // shown at another node's marker (MONITOR_MESSAGE_POPUP_AT: an access node
+    // with no position, at the gateway). A sender with no marker is shown in
+    // the corner: a message is never dropped without a trace.
+    const MESSAGE_HOLD_SEC = {{ message_popup_sec | tojson }};
+    const NODE_NAMES = {{ node_names | tojson }};     // node_id → name, from the file
+    const POPUP_AT = {{ message_popup_at | tojson }}; // sender node_id → node_id of its marker
+    const markersById = new Map();                     // node_id → marker, filled by load()
+    const boards = new Map();       // marker, or "corner:<node_id>" → { list, corner, close, refresh }
+    const toasts = document.getElementById("msg-toasts");
+    const nameOf = id => NODE_NAMES[id] || id;
+
+    function fmtClock(seconds) {
+        return new Date(seconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit",
+                                                                 second: "2-digit" });
+    }
+
+    // Text from the radio, so textContent only: it is never parsed as HTML.
+    function messageEntry(m, at, corner) {
+        const box = document.createElement("div");
+        box.className = "msg-entry";
+        // The header opens the sender's messages.
+        const head = document.createElement("a");
+        head.className = "msg-head";
+        head.href = `/messages?node=${encodeURIComponent(m.node_id)}`;
+        head.title = "This node's messages";
+        const sender = m.node_label || nameOf(m.node_id);
+        head.textContent = `💬 ${sender}${at !== m.node_id ? `, at ${nameOf(at)}` : ""}` +
+            ` · ${fmtClock(m.received_at)}${corner ? " · not on the map" : ""}`;
+        box.appendChild(head);
+        if (m.src_id) {
+            // A PBX frame's ends are phone numbers, already masked by the server
+            // (G12); an app's message, between nodes, is named from the file.
+            const node = m.origin === "meshtastic";
+            const route = document.createElement("div");
+            route.className = "msg-route";
+            route.textContent = `${node ? nameOf(m.src_id) : m.src_id} → ` +
+                (m.dst_id ? (node ? nameOf(m.dst_id) : m.dst_id) : "broadcast");
+            box.appendChild(route);
+        }
+        const body = document.createElement("div");
+        body.className = "msg-text";
+        if (typeof m.text === "string") body.textContent = m.text;
+        else if (m.content_hex) body.textContent = `Not UTF-8: ${m.content_hex.length / 2} bytes`;
+        else body.textContent = `Malformed frame (${m.payload_len || 0} B)`;
+        box.appendChild(body);
+        return box;
+    }
+
+    // The popup of a marker, or the corner box of a sender with no marker:
+    // one each, made on its first message.
+    function boardAt(at) {
+        const marker = markersById.get(at);
+        const key = marker || `corner:${at}`;
+        let board = boards.get(key);
+        if (board) return board;
+        const list = document.createElement("div");
+        board = { list, corner: !marker };
+        const forget = () => { if (boards.get(key) === board) boards.delete(key); };
+        if (marker) {
+            // addTo, not openOn: a message does not close the popup the viewer
+            // opened on a node. No autoPan: the map stays where the viewer left
+            // it, however many messages arrive. A long list scrolls (maxHeight).
+            const popup = L.popup({ autoClose: false, closeOnClick: false, autoPan: false,
+                                    className: "msg-popup", maxWidth: 280, maxHeight: 240 })
+                .setLatLng(marker.getLatLng()).setContent(list).addTo(map);
+            popup.on("remove", forget);    // closed by hand: the next message opens a new one
+            board.close = () => map.closePopup(popup);
+            board.refresh = () => {
+                popup.update();            // its size follows the list
+                const box = popup.getElement().querySelector(".leaflet-popup-content");
+                box.scrollTop = box.scrollHeight;  // the newest, last, in view
+            };
+        } else {
+            list.className = "msg-toast";
+            toasts.prepend(list);
+            board.close = () => { list.remove(); forget(); };
+            board.refresh = () => {};
+        }
+        boards.set(key, board);
+        return board;
+    }
+
+    function showMessage(m) {
+        const at = POPUP_AT[m.node_id] || m.node_id;
+        const board = boardAt(at);
+        const entry = messageEntry(m, at, board.corner);
+        board.list.appendChild(entry);
+        board.refresh();
+        setTimeout(() => {
+            entry.remove();
+            if (board.list.childElementCount) board.refresh();
+            else board.close();
+        }, MESSAGE_HOLD_SEC * 1000);
+    }
+
+    // Said in the status bar: with the feed down, no popup would ever open.
+    const live = document.getElementById("live-status");
+    const socket = io({ transports: ["websocket", "polling"] });
+    socket.on("connect", () => {
+        live.className = "";
+        live.textContent = `· New messages pop up for ${MESSAGE_HOLD_SEC} s`;
+    });
+    socket.on("disconnect", () => {
+        // Messages that arrive while the feed is down get no popup: the feed
+        // does not replay them. They are stored all the same (Messages tab).
+        live.className = "down";
+        live.textContent = "· Live messages disconnected, reconnecting…";
+    });
+    socket.on("mqtt_message", m => {
+        if (m._type === "message" && m.node_id) showMessage(m);
+    });
 
     load(); // nodes do not move: loaded once per page view
 })();

@@ -13,10 +13,11 @@ from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO
 
 from gateway.deployment import Deployment, DeploymentError, Node, load, relay_byte, relay_name
-from monitor.param import TOTAL_SAMPLES_48HRS, Config
+from monitor.param import ENV_OUT_OF_SERVICE, ENV_POPUP_AT, TOTAL_SAMPLES_48HRS, Config
 from monitor.utils import ALL_FIELDS, NODE_ID_RE, DatabaseError, for_browser
 
-__all__ = ["create_app", "current_deployment", "deployment_nodes", "map_urls", "mesh_summary"]
+__all__ = ["create_app", "current_deployment", "deployment_nodes", "map_urls", "mesh_summary",
+           "settings_warnings"]
 
 MAPS = Path(__file__).resolve().parent / "static" / "maps"
 
@@ -66,9 +67,38 @@ def mesh_summary(dep: Deployment | None) -> dict | None:
             "radio": " · ".join(r for r in radio if r)}
 
 
+def settings_warnings(dep: Deployment | None, cfg: Config) -> list[str]:
+    """Each ref of the dashboard's settings that does nothing, and why: said at
+    start, so a typo does not leave the charts or the map as they were."""
+    used = [(name, refs) for name, refs in (
+        (ENV_OUT_OF_SERVICE, list(cfg.environment_out_of_service)),
+        (ENV_POPUP_AT, [ref for pair in cfg.message_popup_at.items() for ref in pair]),
+    ) if refs]
+    if dep is None:
+        return [f"{name} ({', '.join(refs)}) needs MESH_DEPLOYMENT to tell which node each "
+                f"ref is: ignored" for name, refs in used]
+    nodes = {n.ref: n for n in dep.nodes}
+    out = []
+    for name, refs in used:
+        for ref in dict.fromkeys(refs):                   # each once, in order
+            if ref not in nodes:
+                out.append(f"{name} names {ref}, which is not a ref in {dep.path.name}: "
+                           f"ignored")
+            elif name == ENV_OUT_OF_SERVICE and "environment" not in nodes[ref].intervals:
+                out.append(f"{name} names {ref}, which declares no environment flow in "
+                           f"{dep.path.name}: it has no climate charts to hide")
+            elif name == ENV_POPUP_AT and not nodes[ref].node_id:
+                out.append(f"{name} names {ref}, which has no node_id in {dep.path.name}: "
+                           f"ignored")
+    return out
+
+
 def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
     app = Flask(__name__)
     maps = map_urls()
+    if cfg.environment_out_of_service or cfg.message_popup_at:
+        for warning in settings_warnings(current_deployment(cfg.deployment, log), cfg):
+            log(f"[CFG] WARNING: {warning}")
 
     @app.context_processor
     def which_mesh():
@@ -83,10 +113,24 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
 
     # ── Pages ────────────────────────────────────────────────────────────────
 
+    def map_page():
+        """The map. It names both ends of a live message's popup from the file,
+        nodes with no position included (an access node, often a message's
+        sender or destination), and shows a sender's messages at the marker
+        MONITOR_MESSAGE_POPUP_AT gives it, by node_id."""
+        dep = current_deployment(cfg.deployment, log)
+        ids = {n.ref: n.node_id for n in (dep.nodes if dep else ()) if n.node_id}
+        return render_template("map.html", maps=maps, message_popup_sec=cfg.message_popup_sec,
+                               node_names={n.node_id: n.name for n in (dep.nodes if dep else ())
+                                           if n.node_id},
+                               message_popup_at={ids[sender]: ids[anchor] for sender, anchor
+                                                 in cfg.message_popup_at.items()
+                                                 if sender in ids and anchor in ids})
+
     @app.route("/")
     @app.route("/map")
     def map_view():
-        return render_template("map.html", maps=maps)
+        return map_page()
 
     @app.route("/graph")
     def graph_view():
@@ -109,12 +153,17 @@ def create_app(cfg: Config, db, *, async_mode: str = "eventlet", log=print):
         node = next((n for n in nodes if n.node_id == node_id), None)
         # The gateway's radio broadcasts no measured flow: its charts would stay empty.
         if not NODE_ID_RE.match(node_id) or (node and node.function == "gateway"):
-            return render_template("map.html", maps=maps)
+            return map_page()
         # Charts only for what the node carries: no environment flow, no SHT4X
-        # (V3b). A node the file does not describe gets them all.
+        # (V3b). A node the file does not describe gets them all. A sensor out
+        # of service in the field loses its charts too, and the page says why.
+        has_sensor = node is None or "environment" in node.intervals
+        out_of_service = (has_sensor and node is not None
+                          and node.ref in cfg.environment_out_of_service)
         return render_template("dashboard.html", node_id=node_id,
                                node_name=node.name if node else None,
-                               environment=node is None or "environment" in node.intervals,
+                               environment=has_sensor and not out_of_service,
+                               environment_out_of_service=out_of_service,
                                relays={relay_byte(n.node_id): relay_name(relay_byte(n.node_id), nodes)
                                        for n in nodes if n.node_id})
 

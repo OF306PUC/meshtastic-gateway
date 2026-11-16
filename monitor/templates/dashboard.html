@@ -22,6 +22,7 @@
   }
   .dash-header .ws-dot.live { background: var(--accent); }
   .dash-header .dash-error { color: var(--danger); font-size: 13px; }
+  .dash-header .dash-note { color: var(--muted); font-size: 13px; }
 
   /* As many columns as fit, each card a readable height; the page scrolls
      instead of squeezing every chart into the window (a small laptop screen,
@@ -76,6 +77,9 @@
     <a href="/map" class="back">← Map</a>
     <h2>{{ node_name or node_id }}{% if node_name %} <small>{{ node_id }}</small>{% endif %}</h2>
     <a href="/messages?node={{ node_id | urlencode }}" class="back">💬 Messages</a>
+    {% if environment_out_of_service %}
+    <span class="dash-note">Environment sensor out of service: no temperature or humidity charts</span>
+    {% endif %}
     <span class="dash-error" id="dash-error"></span>
     <img class="client-logo" src="{{ url_for('static', filename='assets/sasipa-logo.png') }}" alt="SASIPA">
     <div class="ws-dot" id="ws-dot" title="WebSocket status"></div>
@@ -88,7 +92,7 @@
     "use strict";
 
     const NODE_ID = {{ node_id | tojson }};
-    // Temperature and humidity only for a node that carries the SHT4X.
+    // Temperature and humidity only for a node that carries the SHT4X, in service.
     const HAS_ENVIRONMENT = {{ environment | tojson }};
     // relay_node → the node(s) of the file it names, as the graph names them.
     const RELAYS = {{ relays | tojson }};

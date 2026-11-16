@@ -114,6 +114,12 @@ services:
       - BROKER_PORT=1883
       # Unset = same origin only, whatever name the browser used to reach the proxy.
       - MONITOR_ALLOWED_ORIGINS=${MONITOR_ALLOWED_ORIGINS:-}
+      # Refs whose environment sensor is out of service: no climate charts.
+      - MONITOR_ENVIRONMENT_OUT_OF_SERVICE=${MONITOR_ENVIRONMENT_OUT_OF_SERVICE:-}
+      # Seconds the map holds a new message's popup over its node (default 30).
+      - MONITOR_MESSAGE_POPUP_SEC=${MONITOR_MESSAGE_POPUP_SEC:-}
+      # A sender's messages at another node's marker: D1:GW,D2:GW.
+      - MONITOR_MESSAGE_POPUP_AT=${MONITOR_MESSAGE_POPUP_AT:-}
     volumes:
       - ./deployments:/app/deployments:ro   # surveyed positions for the map
     ports:
