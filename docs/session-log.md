@@ -20,6 +20,151 @@ Entry format:
 
 ---
 
+## 2026-11-16 — Revisión de la v2 antes de dejarla en main
+**Time:** (aprox)
+**User request:** qué problemas puede tener la implementación del 10-11 y si
+queda como `main`. Respuestas del usuario a la revisión: una sola carpeta en
+la Pi, la válida es `meshtastic-gateway-v2`; los mensajes de D1 y D2 salen
+sobre el gateway, y sobre un nodo solo si vienen de ese nodo; la fuente de
+verdad de la posición es el GPS medido en terreno, que es el que transmiten
+los nodos; siguen fuera de servicio los SHT4X de N1 y N3; arreglar el paneo
+del mapa y la superposición de pop-ups; comentar en el código los mensajes
+que llegan con el feed caído.
+
+### Actions taken
+- **Se elimina `MONITOR_FIXED_POSITIONS`** (código, compose, `.env.example`,
+  tests). Era una segunda fuente de verdad sobre el GPS. El mapa vuelve a
+  `surveyed` > GPS > `planned`; una posición medida que haga falta va como
+  `surveyed` en el archivo de la plataforma (su `configure.py` solo la
+  imprime, no la graba en las radios).
+- **Pop-ups secuenciados:** un pop-up por marcador; los mensajes que caen en
+  él se listan en orden de llegada y cada uno dura
+  `MONITOR_MESSAGE_POPUP_SEC` desde que llegó; el pop-up se cierra con el
+  último. Una lista larga hace scroll y deja el más nuevo a la vista. Antes,
+  dos emisores en un mismo marcador (D1 y D2 en el gateway) se tapaban, y un
+  mensaje nuevo del mismo nodo reemplazaba al anterior.
+- **Sin `autoPan`:** un mensaje ya no mueve el mapa. `addTo` en vez de
+  `openOn`: tampoco cierra la ficha de nodo que el usuario tenga abierta.
+- Comentario en `map.html`: los mensajes que llegan con el feed caído no
+  abren pop-up (el feed no los repite), pero se guardan y salen en Messages.
+- `.env.example` y compose: el ejemplo pasa a `D1:GW,D2:GW`.
+- Tests: 331 en el laptop, 1 falla de CRLF propia de Windows.
+
+### Next steps / open questions
+- `.env` de la v2: `MONITOR_MESSAGE_POPUP_AT=D1:GW,D2:GW`, sin
+  `MONITOR_FIXED_POSITIONS`; luego `docker compose up -d --build web`.
+- Una sola carpeta en la Pi: la v2. La original se archiva y se borra.
+- Commitear en la plataforma `rapa-nui.yaml`: el gateway commitea la misma
+  versión, que la plataforma aún no tiene en ningún commit (G10).
+
+---
+
+## 2026-11-10 — SHT4X de N1 y N3 fuera de servicio; propuesta de exportación de datos
+**Time:** (aprox)
+**User request:** en `sasipa/rapa-nui` el SHT4X de N1 y de N3 no funciona:
+quitar esos paneles y documentarlo para diseñarlo después. Proponer cómo los
+ingenieros de SASIPA sacan los datos guardados en el centralizador (gateway) y
+se los envían por internet.
+
+### Actions taken
+- Inspección del repositorio. Línea base en Windows: 323 tests, 2 fallas
+  propias del checkout (`core.autocrlf=true` cambia el hash del `chart.js`
+  vendorizado; un `read_text()` sin `encoding` lee en cp1252). En Linux no
+  ocurren.
+- Nuevo ajuste del `web`, `MONITOR_ENVIRONMENT_OUT_OF_SERVICE` (refs separadas
+  por coma, en `.env`): el dashboard de esos nodos no muestra temperatura ni
+  humedad y dice por qué. Al arrancar advierte una ref que no oculta nada (no
+  está en el archivo, o no declara `environment`, o falta `MESH_DEPLOYMENT`).
+  `docker-compose.yaml`, `.env.example`, tres tests nuevos: 326, todos OK salvo
+  la falla de CRLF de Windows.
+- `docs/future-work.md` §3: qué se sabe, qué sigue igual (el archivo aún
+  declara el SHT4X y la cadencia de 120 s; el PDR del flujo) y qué decidir.
+- `docs/architecture/data-export.md` (nuevo) y `docs/future-work.md` §4: fase 1,
+  una página Export en el dashboard que baja un ZIP (CSV por medición,
+  `deployment.yaml`, manifiesto con filas y SHA-256, chequeo del reloj del
+  host); fase 2, subida diaria si el centralizador tiene internet además del
+  AP. Enlace en el README.
+
+### Decisions
+- El ajuste vive en el `web`, no en el archivo de deployment: ese archivo es de
+  la plataforma y debe seguir idéntico (G10). Dónde debe vivir "fuera de
+  servicio" queda como decisión (future-work §3).
+- La página dice que el sensor está fuera de servicio en vez de solo quitar
+  los gráficos.
+- La exportación nunca muestra más que el dashboard (G12) y no abre puertas
+  nuevas (G13): mismo login, cuenta de lectura.
+
+### Next steps / open questions
+- En el host: agregar `MONITOR_ENVIRONMENT_OUT_OF_SERVICE=N1,N3` a `.env` y
+  `docker compose up -d --build web` (sin internet: no cambian dependencias).
+- Saber cómo fallan N1 y N3: ¿no llegan paquetes `environment`, o llegan con
+  lecturas malas? El log del receiver (`[PDR] N1/environment silent`) o
+  InfluxDB lo dicen.
+- Las seis decisiones de `data-export.md` §3, antes de construir la fase 1.
+
+### Después: copia `meshtastic-gateway-v2` en rpi7
+**User request:** en rpi7 (`192.168.50.21`), una copia `-v2` del gateway con:
+sin paneles SHT4X en N1 y N3; N4 y N5 en una posición fija; un pop-up en el
+mapa por cada mensaje nuevo, con N segundos de espera configurables; pestañas
+Map, Messages, Graph. Luego: sincronización NTP del reloj. Los contenedores
+los baja el usuario después.
+
+- Acceso por clave SSH (`~/.ssh/id_ed25519` del laptop, autorizada por el
+  usuario).
+- `sudo cp -a` del gateway a `~/Desktop/meshtastic-gateway-v2` (`pwfile` y
+  `data/` son de mosquitto). La Pi estaba en `5373c80`: llevada a `eaea313`
+  con un bundle (solo docs) y luego el parche de este día. La copia original
+  no se tocó.
+- **Mapa:** cada mensaje del feed en vivo abre un pop-up sobre el nodo que lo
+  envió: quién, la ruta (teléfonos del PBX enmascarados, G12), el texto y un
+  enlace a Messages. Dura `MONITOR_MESSAGE_POPUP_SEC` (30 por defecto); otro
+  mensaje del mismo nodo lo reemplaza. Un emisor sin marcador sale en la
+  esquina, no se pierde. La barra de estado dice si el feed se cae.
+- **Pestañas:** Map, Messages, Graph (`base.html`).
+- **N4 y N5:** el mapa los mostraba por GPS, que gana sobre `planned`; solo
+  `surveyed` gana sobre el GPS. Primero se puso `site.surveyed` en el YAML de
+  la copia. Luego el usuario pidió que el gateway mantenga el mismo archivo
+  que la plataforma: se deshizo, y las posiciones pasaron a un ajuste nuevo
+  del `web`, `MONITOR_FIXED_POSITIONS` (`ref:lat,lon` separados por `;`), que
+  gana sobre el archivo y el GPS (`source: fixed`; el GPS queda al lado).
+  N4 (-27.152915, -109.4226666), N5 (-27.14566, -109.42553).
+- **Pop-up de D1 y D2:** el usuario envía los mensajes desde D1 y D2, que no
+  tienen posición. Ajuste nuevo `MONITOR_MESSAGE_POPUP_AT=D1:N1,D2:N2`: sus
+  mensajes se abren sobre N1 y N2 ("D1, at N1"). Un ref desconocido o sin
+  `node_id` se advierte al arrancar.
+- **`rapa-nui.yaml` = el de `../meshtastic-platform`**, copiado byte a byte
+  (local y copia). Difería del de `5373c80`, que la plataforma nunca
+  commiteó: `ble_pin_env: RAPA_NUI_BLE_PIN`, `hop_limit` 1 en D1 y D2, y (sin
+  commit aún en la plataforma) `hop_limit` 2 en N1 y el nodo nuevo `Rx`
+  (`!bb8106c4`, receiver), que el gateway ahora publica en vez de descartar.
+- **`.env` de la copia:** `COMPOSE_PROJECT_NAME=meshtastic-gateway` (si no,
+  el nombre de la carpeta crea otro proyecto con una InfluxDB vacía),
+  `MONITOR_ENVIRONMENT_OUT_OF_SERVICE=N1,N3`, `MONITOR_MESSAGE_POPUP_SEC=30`,
+  `MONITOR_MESSAGE_POPUP_AT=D1:N1,D2:N2` y `MONITOR_FIXED_POSITIONS`.
+- **NTP:** ya funcionaba. chrony activo y habilitado, sincronizado con
+  servidores públicos (desfase 0,2 ms), `makestep 1 3`. La Pi tiene ahora
+  Ethernet con internet (`eth0`) además del AP en `wlan0`. Sin Ethernet no
+  tiene fuente y vuelve el ajuste a mano (`field-hotspot.md` §4).
+- Verificado en la Pi con la imagen `web` existente (contenedor desechable, la
+  copia montada en solo lectura): 122 de 124 tests (los 2 restantes ejecutan
+  `main.py`, cuya dependencia `pubsub` no está en esa imagen), y la app con la
+  configuración real de rapa-nui. En el laptop: 333 tests (1 falla de CRLF
+  propia de Windows).
+
+### Next steps / open questions
+- El usuario baja el stack viejo y levanta la copia:
+  `cd ~/Desktop/meshtastic-gateway && docker compose down`, luego
+  `cd ~/Desktop/meshtastic-gateway-v2 && docker compose up -d --build`.
+- Commitear en la plataforma los cambios de `rapa-nui.yaml` (`Rx`, `hop_limit`
+  de N1): el gateway ya tiene ese archivo.
+- 2026-11-11: N4 sale de `MONITOR_FIXED_POSITIONS`; el mapa lo ubica por su
+  GPS. Su GPS repite el mismo punto (-27.1305, -109.4149, a ~46 m de un día a
+  otro), a 2,6 km de la posición fija. Esa posición tenía la misma latitud
+  que la de N5 antes de que el usuario la corrigiera. Editado el `.env` de la
+  v2, que ya corre; el `web` toma el cambio al recrearse.
+
+---
+
 ## 2026-11-06 — rapa-nui.yaml re-sincronizado; el access point no levanta al arrancar
 **Time:** (aprox)
 **User request:** copiar `rapa-nui.yaml` de la platform. Al reiniciar, rpi13

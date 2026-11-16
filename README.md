@@ -68,4 +68,7 @@ python3 -m venv .venv
   built yet, with their urgency and the deployment each is for.
 - [`docs/architecture/acknowledged-sends.md`](docs/architecture/acknowledged-sends.md)
   — the gateway sending to one node and confirming it by its ACK (future work).
+- [`docs/architecture/data-export.md`](docs/architecture/data-export.md)
+  — SASIPA's engineers exporting the stored data and sending it over the
+  internet (proposal).
 - [`docs/session-log.md`](docs/session-log.md) — what was done, when, and why.
