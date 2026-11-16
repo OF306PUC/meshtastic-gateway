@@ -96,7 +96,7 @@ radio:
   # first boot, and the SenseCAP has no screen, so that is FIXED_PIN at the
   # default Meshtastic publishes: anyone within BLE range could pair and
   # reconfigure the node from the app. Set it in .env before provisioning.
-  ble_pin_env: EASTERNET_BLE_PIN
+  ble_pin_env: RAPA_NUI_BLE_PIN
   # Background beacons, in seconds. Not `intervals` flows: NodeInfo cannot be
   # switched off and both run at hours scale, so no estimator measures a gap
   # against them. They are written explicitly anyway, OFF case included, or a
@@ -138,7 +138,7 @@ nodes:
     mcu: nrf52840
     firmware: "2.7.26"
     role: CLIENT                 # once sites are known, the highest/farthest node may take CLIENT_BASE (plan §2.6)
-    hop_limit: 3
+    hop_limit: 2
     antenna:
       type: rubber
       gain_dbi: 2.0
@@ -349,7 +349,7 @@ nodes:
     mcu: esp32
     firmware: "2.7.26"
     role: CLIENT_MUTE
-    hop_limit: 3
+    hop_limit: 1
     antenna:
       type: rubber
       gain_dbi: 2.0
@@ -376,7 +376,7 @@ nodes:
     mcu: esp32
     firmware: "2.7.26"
     role: CLIENT_MUTE
-    hop_limit: 3
+    hop_limit: 1
     antenna:
       type: rubber
       gain_dbi: 2.0
@@ -392,4 +392,31 @@ nodes:
       antenna_height_m: null
       mount: null
     intervals: {position: 900}
+    sensors: []
+
+  - ref: Rx
+    function: receiver
+    status: planned
+    node_id: "!bb8106c4"
+    mac: "2C:BC:BB:81:06:C4"
+    hardware: lilygo_tbeam_sx1276
+    mcu: esp32
+    firmware: "2.7.26"
+    role: CLIENT_MUTE
+    hop_limit: 1
+    antenna:
+      type: rubber
+      gain_dbi: 2.0
+      band_mhz: null
+      model: LILYGO stock
+      connector_loss_db: null
+    tx_power_dbm: 20             # SX1276: the chip ceiling (RF95_MAX_POWER) binds
+    site:
+      name: null
+      asset_code: null
+      asset_type: null
+      surveyed: {lat: null, lon: null, alt_m: null, alt_source: null}
+      antenna_height_m: null
+      mount: null
+    intervals: {}
     sensors: []
