@@ -20,6 +20,29 @@ Entry format:
 
 ---
 
+## 2026-11-17 — Diagrama de puertos del README al día
+**Time:** (aprox)
+**User request:** revisar si el diagrama del README necesita actualizarse.
+
+### Actions taken
+- `docs/diagrams/port-architecture.tex` no cambiaba desde 2026-10-27. Contra el
+  código (`telegraf.conf`, `gateway/publish.py`, `mqtt/aclfile.template`,
+  `monitor/param.py`):
+  - measurements: `telemetry · message · nodeinfo · neighbor · pdr` (decía
+    `pbx_message` y le faltaban `nodeinfo` y `neighbor`);
+  - topics MQTT: se agregan `nodeinfo` y `neighbor`;
+  - flujo 5, cuenta `monitor`: lee también `message`;
+  - red de terreno: primero la WiFi propia del gateway (`10.42.0.1`), que
+    desde 2026-11-06 es la red de cada arranque.
+- PNG regenerado con `docs/diagrams/build.sh port-architecture`; el PDF que
+  también genera se borró (no está versionado).
+
+### Decisions
+- La caja de influxdb sigue diciendo 1.11: es la imagen por defecto de
+  `docker-compose.yaml`; 1.8 es solo el override de pi7 en `.env`.
+
+---
+
 ## 2026-11-16 — Revisión de la v2 antes de dejarla en main
 **Time:** (aprox)
 **User request:** qué problemas puede tener la implementación del 10-11 y si

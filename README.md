@@ -1,5 +1,7 @@
 # meshtastic-gateway
 
+**English** · [Español](README.es.md)
+
 Ingestion and persistence for a Meshtastic mesh. A gateway radio hears the
 mesh; the gateway decodes each packet, measures each node's packet delivery
 ratio (PDR) against its broadcast cadence, publishes over MQTT, stores in

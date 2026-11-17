@@ -48,10 +48,10 @@
   {\textbf{telegraf}\\[-1pt]\sub{1.32}\\[-1pt]\unpublished};
 
 \node[note, text=mtdark!80, align=right, anchor=east] at (7.3,0 |- I)
-  {\textbf{InfluxDB measurements}\\telemetry · pbx\_message · pdr};
+  {\textbf{InfluxDB measurements}\\telemetry · message · nodeinfo\\neighbor · pdr};
 \node[note, text=mtgreen7, align=left, anchor=west] (topics) at ($(T.east)+(0.9,0)$)
   {\textbf{MQTT topics}\\\pfx/\textless node\_label\textgreater/\\
-   \{position, device, environment,\\\hphantom{\{}message, pdr\}};
+   \{position, device, environment,\\\hphantom{\{}message, nodeinfo, neighbor,\\\hphantom{\{}pdr\}};
 
 % the compose network
 \begin{scope}[on background layer]
@@ -128,7 +128,7 @@
         fit={(B1)(B2)($(refused)+(0.4,1.2)$)($(B1.north)+(0,0.55)$)}, inner sep=3mm] (F) {};
 \end{scope}
 \node[note, anchor=north west, align=left, text=mtdark] at ($(F.north west)+(0.25,-0.12)$)
-  {\textbf{field network}\\LAN, or the gateway's own WiFi (WPA2)};
+  {\textbf{field network}\\the gateway's own WiFi (WPA2, 10.42.0.1), or a LAN};
 
 % ── The gateway radio ─────────────────────────────────────────────────────────
 \node[sock, draw=amber!85!black, very thick] (dev) at (22.0,0 |- H.south)
@@ -151,7 +151,7 @@
     \fn{3} & mosquitto $\rightarrow$ telegraf & MQTT & telegraf: read \pfx/\#\\
     \fn{4} & telegraf $\rightarrow$ influxdb & HTTP & InfluxDB write-only account\\
     \fn{5} & mosquitto $\rightarrow$ web (live feed) & MQTT
-           & monitor: read \pfx/+/position $|$ device $|$ environment only\\
+           & monitor: read \pfx/+/position $|$ device $|$ environment $|$ message only\\
     \fn{6} & web $\rightarrow$ influxdb & HTTP & InfluxDB read-only account\\
     \fn{7} & browser $\rightarrow$ proxy $\rightarrow$ web & HTTP :80 $\rightarrow$ :5000
            & dashboard login (basic auth); pages, /api, Socket.IO\\
